@@ -1,0 +1,19 @@
+	<target name="smoke-test" description="smoke testing">
+
+		<echo message="Running node script that spawns a webserver and phantomjs on ${phantom.js.exec} for smoke testing. Phantomjs version:" />
+		<exec executable="${phantom.js.exec}">
+			<arg line="--version" />
+		</exec>
+
+		<exec executable="${node.exec}" timeout="500000" failonerror="true">
+		  <arg line="${dir.src}/chuckbob/script/node-chuckbob-phantom.js" />
+		  <arg line="--websDir=${dir.src}/.." />
+		  <arg line="--phantomjs=${phantom.js.exec}" />
+		  <arg line="--urlPathname=/src/index-smoke.html?phantomjs=true&amp;" />
+		  <arg line="--urlProtocol=http" />
+		  <arg line="--urlHost=localhost" />
+		</exec>
+
+		<echo message="Done" />
+
+	</target>
