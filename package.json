@@ -1,0 +1,40 @@
+{
+  "name": "ChuckBob",
+  "version": "0.0.1",
+  "description": "ChuckBob test suite",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/kambisports/ChuckBob.git"
+  },
+  "keywords": [
+    "smoke",
+    "testing"
+  ],
+  "author": [
+    Henrik Hjelte <henrik@henrikhjelte.com>,
+    Filip Stenbeck <filip.stenback@gmail.com>,
+    Christopher Browne <christopher.browne@kambi.com>,
+    Gustaf Gideskog <gustaf.gideskog@kambi.com>,
+    Jon Wålstedt <jon.walstedt@kambi.com>
+  ],
+  "license": "See LICENSE file",
+  "bugs": {
+    "url": "https://github.com/kambisports/ChuckBob/issues"
+  },
+  "homepage": "https://github.com/kambisports/ChuckBob",
+  "devDependencies": {
+    "URIjs": "^1.13.2",
+    "almond": "^0.2.9",
+    "browserify": "^4.2.0",
+    "jquery": "1.11.0",
+    "requirejs": "^2.1.14",
+    "requirejs-text": "git://github.com/requirejs/text#0260977d6dfb61a44c7b5ec977332955dac33869",
+    "stringify": "^2.2.0",
+    "when": "^3.2.3"
+  }
+}

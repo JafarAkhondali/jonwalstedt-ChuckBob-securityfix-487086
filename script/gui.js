@@ -1,14 +1,13 @@
 /*global window, document */
 /*global define */
 
-define([
-	'../bower_components/requirejs-text/text!script/gui-template.html!strip',
-	'jquery',
-	'script/draggable.js'
-], function (html, $, makeDraggable) {
-	"use strict";
+"use strict";
 
-	var $content,
+var html = require('./gui-template.html'),
+		$ = require('jquery'),
+		makeDraggable = require('./draggable'),
+
+		$content,
 		gui,
 		controller,
 		testNames,
@@ -138,5 +137,4 @@ define([
 
 	};
 
-	return gui;
-});
+module.exports = gui;

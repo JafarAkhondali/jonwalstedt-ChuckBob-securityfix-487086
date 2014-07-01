@@ -1,25 +1,18 @@
 /*jslint */
 /*global window, document, console, localStorage */
 /*global define,require*/
-
-define([
-	'when',
-	'../bower_components/URIjs/src/URI',
-	'script/gui',
-	'script/phantom-reporter'
-], function (
-	when,
-	URI,
-	gui,
-	phantomReporter
-) {
-	"use strict";
+"use strict";
 
 	// Chuck = the ventriloquist of soap.
 	// http://www.youtube.com/watch?v=DwDbd4jQpkA
 	// Bob = the doll chuck controls, i.e. the api you tell to do stuff
 
-	var api = {},
+var when = require('when'),
+		URI = require('URIjs'),
+		gui = require('./gui'),
+		phantomReporter = require('./phantom-reporter'),
+		
+		api = {},
 		reporter = gui,
 		integrationApi = {},
 		DOING_RELOAD_CONDITION = 'DoingReload',
@@ -1051,6 +1044,4 @@ define([
 	selfTest();
 
 
-	return api;
-
-});
+module.exports = api;

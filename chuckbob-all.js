@@ -1,1357 +1,2463 @@
-(function () {
-/**
- * @license almond 0.2.9 Copyright (c) 2011-2014, The Dojo Foundation All Rights Reserved.
- * Available via the MIT or new BSD license.
- * see: http://github.com/jrburke/almond for details
+(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+/*global window, document */
+/*global require */
+
+'use strict';
+
+var chuckbob = require('./script/chuckbob'),
+    $ = require('jquery');
+
+$.noConflict();
+chuckbob.integrationApi.setJQuery($);
+
+if (window.afterChuckbob) {
+  window.afterChuckbob(chuckbob);
+};
+
+
+
+},{"./script/chuckbob":25,"jquery":7}],2:[function(require,module,exports){
+/*!
+ * URI.js - Mutating URLs
+ * IPv6 Support
+ *
+ * Version: 1.13.2
+ *
+ * Author: Rodney Rehm
+ * Web: http://medialize.github.io/URI.js/
+ *
+ * Licensed under
+ *   MIT License http://www.opensource.org/licenses/mit-license
+ *   GPL v3 http://opensource.org/licenses/GPL-3.0
+ *
  */
-//Going sloppy to avoid 'use strict' string cost, but strict practices should
-//be followed.
-/*jslint sloppy: true */
-/*global setTimeout: false */
 
-var requirejs, require, define;
-(function (undef) {
-    var main, req, makeMap, handlers,
-        defined = {},
-        waiting = {},
-        config = {},
-        defining = {},
-        hasOwn = Object.prototype.hasOwnProperty,
-        aps = [].slice,
-        jsSuffixRegExp = /\.js$/;
+(function (root, factory) {
+  'use strict';
+  // https://github.com/umdjs/umd/blob/master/returnExports.js
+  if (typeof exports === 'object') {
+    // Node
+    module.exports = factory();
+  } else if (typeof define === 'function' && define.amd) {
+    // AMD. Register as an anonymous module.
+    define(factory);
+  } else {
+    // Browser globals (root is window)
+    root.IPv6 = factory(root);
+  }
+}(this, function (root) {
+  'use strict';
 
-    function hasProp(obj, prop) {
-        return hasOwn.call(obj, prop);
+  /*
+  var _in = "fe80:0000:0000:0000:0204:61ff:fe9d:f156";
+  var _out = IPv6.best(_in);
+  var _expected = "fe80::204:61ff:fe9d:f156";
+
+  console.log(_in, _out, _expected, _out === _expected);
+  */
+
+  // save current IPv6 variable, if any
+  var _IPv6 = root && root.IPv6;
+
+  function bestPresentation(address) {
+    // based on:
+    // Javascript to test an IPv6 address for proper format, and to
+    // present the "best text representation" according to IETF Draft RFC at
+    // http://tools.ietf.org/html/draft-ietf-6man-text-addr-representation-04
+    // 8 Feb 2010 Rich Brown, Dartware, LLC
+    // Please feel free to use this code as long as you provide a link to
+    // http://www.intermapper.com
+    // http://intermapper.com/support/tools/IPV6-Validator.aspx
+    // http://download.dartware.com/thirdparty/ipv6validator.js
+
+    var _address = address.toLowerCase();
+    var segments = _address.split(':');
+    var length = segments.length;
+    var total = 8;
+
+    // trim colons (:: or ::a:b:c… or …a:b:c::)
+    if (segments[0] === '' && segments[1] === '' && segments[2] === '') {
+      // must have been ::
+      // remove first two items
+      segments.shift();
+      segments.shift();
+    } else if (segments[0] === '' && segments[1] === '') {
+      // must have been ::xxxx
+      // remove the first item
+      segments.shift();
+    } else if (segments[length - 1] === '' && segments[length - 2] === '') {
+      // must have been xxxx::
+      segments.pop();
     }
 
-    /**
-     * Given a relative module name, like ./something, normalize it to
-     * a real name that can be mapped to a path.
-     * @param {String} name the relative name
-     * @param {String} baseName a real name that the name arg is relative
-     * to.
-     * @returns {String} normalized name
-     */
-    function normalize(name, baseName) {
-        var nameParts, nameSegment, mapValue, foundMap, lastIndex,
-            foundI, foundStarMap, starI, i, j, part,
-            baseParts = baseName && baseName.split("/"),
-            map = config.map,
-            starMap = (map && map['*']) || {};
+    length = segments.length;
 
-        //Adjust any relative paths.
-        if (name && name.charAt(0) === ".") {
-            //If have a base name, try to normalize against it,
-            //otherwise, assume it is a top-level require that will
-            //be relative to baseUrl in the end.
-            if (baseName) {
-                //Convert baseName to array, and lop off the last part,
-                //so that . matches that "directory" and not name of the baseName's
-                //module. For instance, baseName of "one/two/three", maps to
-                //"one/two/three.js", but we want the directory, "one/two" for
-                //this normalization.
-                baseParts = baseParts.slice(0, baseParts.length - 1);
-                name = name.split('/');
-                lastIndex = name.length - 1;
+    // adjust total segments for IPv4 trailer
+    if (segments[length - 1].indexOf('.') !== -1) {
+      // found a "." which means IPv4
+      total = 7;
+    }
 
-                // Node .js allowance:
-                if (config.nodeIdCompat && jsSuffixRegExp.test(name[lastIndex])) {
-                    name[lastIndex] = name[lastIndex].replace(jsSuffixRegExp, '');
-                }
+    // fill empty segments them with "0000"
+    var pos;
+    for (pos = 0; pos < length; pos++) {
+      if (segments[pos] === '') {
+        break;
+      }
+    }
 
-                name = baseParts.concat(name);
+    if (pos < total) {
+      segments.splice(pos, 1, '0000');
+      while (segments.length < total) {
+        segments.splice(pos, 0, '0000');
+      }
 
-                //start trimDots
-                for (i = 0; i < name.length; i += 1) {
-                    part = name[i];
-                    if (part === ".") {
-                        name.splice(i, 1);
-                        i -= 1;
-                    } else if (part === "..") {
-                        if (i === 1 && (name[2] === '..' || name[0] === '..')) {
-                            //End of the line. Keep at least one non-dot
-                            //path segment at the front so it can be mapped
-                            //correctly to disk. Otherwise, there is likely
-                            //no path mapping for a path starting with '..'.
-                            //This can still fail, but catches the most reasonable
-                            //uses of ..
-                            break;
-                        } else if (i > 0) {
-                            name.splice(i - 1, 2);
-                            i -= 2;
-                        }
-                    }
-                }
-                //end trimDots
+      length = segments.length;
+    }
 
-                name = name.join("/");
-            } else if (name.indexOf('./') === 0) {
-                // No baseName, so this is ID is resolved relative
-                // to baseUrl, pull off the leading dot.
-                name = name.substring(2);
-            }
+    // strip leading zeros
+    var _segments;
+    for (var i = 0; i < total; i++) {
+      _segments = segments[i].split('');
+      for (var j = 0; j < 3 ; j++) {
+        if (_segments[0] === '0' && _segments.length > 1) {
+          _segments.splice(0,1);
+        } else {
+          break;
+        }
+      }
+
+      segments[i] = _segments.join('');
+    }
+
+    // find longest sequence of zeroes and coalesce them into one segment
+    var best = -1;
+    var _best = 0;
+    var _current = 0;
+    var current = -1;
+    var inzeroes = false;
+    // i; already declared
+
+    for (i = 0; i < total; i++) {
+      if (inzeroes) {
+        if (segments[i] === '0') {
+          _current += 1;
+        } else {
+          inzeroes = false;
+          if (_current > _best) {
+            best = current;
+            _best = _current;
+          }
+        }
+      } else {
+        if (segments[i] === '0') {
+          inzeroes = true;
+          current = i;
+          _current = 1;
+        }
+      }
+    }
+
+    if (_current > _best) {
+      best = current;
+      _best = _current;
+    }
+
+    if (_best > 1) {
+      segments.splice(best, _best, '');
+    }
+
+    length = segments.length;
+
+    // assemble remaining segments
+    var result = '';
+    if (segments[0] === '')  {
+      result = ':';
+    }
+
+    for (i = 0; i < length; i++) {
+      result += segments[i];
+      if (i === length - 1) {
+        break;
+      }
+
+      result += ':';
+    }
+
+    if (segments[length - 1] === '') {
+      result += ':';
+    }
+
+    return result;
+  }
+
+  function noConflict() {
+    /*jshint validthis: true */
+    if (root.IPv6 === this) {
+      root.IPv6 = _IPv6;
+    }
+  
+    return this;
+  }
+
+  return {
+    best: bestPresentation,
+    noConflict: noConflict
+  };
+}));
+
+},{}],3:[function(require,module,exports){
+/*!
+ * URI.js - Mutating URLs
+ * Second Level Domain (SLD) Support
+ *
+ * Version: 1.13.2
+ *
+ * Author: Rodney Rehm
+ * Web: http://medialize.github.io/URI.js/
+ *
+ * Licensed under
+ *   MIT License http://www.opensource.org/licenses/mit-license
+ *   GPL v3 http://opensource.org/licenses/GPL-3.0
+ *
+ */
+
+(function (root, factory) {
+  'use strict';
+  // https://github.com/umdjs/umd/blob/master/returnExports.js
+  if (typeof exports === 'object') {
+    // Node
+    module.exports = factory();
+  } else if (typeof define === 'function' && define.amd) {
+    // AMD. Register as an anonymous module.
+    define(factory);
+  } else {
+    // Browser globals (root is window)
+    root.SecondLevelDomains = factory(root);
+  }
+}(this, function (root) {
+  'use strict';
+
+  // save current SecondLevelDomains variable, if any
+  var _SecondLevelDomains = root && root.SecondLevelDomains;
+
+  var SLD = {
+    // list of known Second Level Domains
+    // converted list of SLDs from https://github.com/gavingmiller/second-level-domains
+    // ----
+    // publicsuffix.org is more current and actually used by a couple of browsers internally.
+    // downside is it also contains domains like "dyndns.org" - which is fine for the security
+    // issues browser have to deal with (SOP for cookies, etc) - but is way overboard for URI.js
+    // ----
+    list: {
+      'ac':' com gov mil net org ',
+      'ae':' ac co gov mil name net org pro sch ',
+      'af':' com edu gov net org ',
+      'al':' com edu gov mil net org ',
+      'ao':' co ed gv it og pb ',
+      'ar':' com edu gob gov int mil net org tur ',
+      'at':' ac co gv or ',
+      'au':' asn com csiro edu gov id net org ',
+      'ba':' co com edu gov mil net org rs unbi unmo unsa untz unze ',
+      'bb':' biz co com edu gov info net org store tv ',
+      'bh':' biz cc com edu gov info net org ',
+      'bn':' com edu gov net org ',
+      'bo':' com edu gob gov int mil net org tv ',
+      'br':' adm adv agr am arq art ato b bio blog bmd cim cng cnt com coop ecn edu eng esp etc eti far flog fm fnd fot fst g12 ggf gov imb ind inf jor jus lel mat med mil mus net nom not ntr odo org ppg pro psc psi qsl rec slg srv tmp trd tur tv vet vlog wiki zlg ',
+      'bs':' com edu gov net org ',
+      'bz':' du et om ov rg ',
+      'ca':' ab bc mb nb nf nl ns nt nu on pe qc sk yk ',
+      'ck':' biz co edu gen gov info net org ',
+      'cn':' ac ah bj com cq edu fj gd gov gs gx gz ha hb he hi hl hn jl js jx ln mil net nm nx org qh sc sd sh sn sx tj tw xj xz yn zj ',
+      'co':' com edu gov mil net nom org ',
+      'cr':' ac c co ed fi go or sa ',
+      'cy':' ac biz com ekloges gov ltd name net org parliament press pro tm ',
+      'do':' art com edu gob gov mil net org sld web ',
+      'dz':' art asso com edu gov net org pol ',
+      'ec':' com edu fin gov info med mil net org pro ',
+      'eg':' com edu eun gov mil name net org sci ',
+      'er':' com edu gov ind mil net org rochest w ',
+      'es':' com edu gob nom org ',
+      'et':' biz com edu gov info name net org ',
+      'fj':' ac biz com info mil name net org pro ',
+      'fk':' ac co gov net nom org ',
+      'fr':' asso com f gouv nom prd presse tm ',
+      'gg':' co net org ',
+      'gh':' com edu gov mil org ',
+      'gn':' ac com gov net org ',
+      'gr':' com edu gov mil net org ',
+      'gt':' com edu gob ind mil net org ',
+      'gu':' com edu gov net org ',
+      'hk':' com edu gov idv net org ',
+      'id':' ac co go mil net or sch web ',
+      'il':' ac co gov idf k12 muni net org ',
+      'in':' ac co edu ernet firm gen gov i ind mil net nic org res ',
+      'iq':' com edu gov i mil net org ',
+      'ir':' ac co dnssec gov i id net org sch ',
+      'it':' edu gov ',
+      'je':' co net org ',
+      'jo':' com edu gov mil name net org sch ',
+      'jp':' ac ad co ed go gr lg ne or ',
+      'ke':' ac co go info me mobi ne or sc ',
+      'kh':' com edu gov mil net org per ',
+      'ki':' biz com de edu gov info mob net org tel ',
+      'km':' asso com coop edu gouv k medecin mil nom notaires pharmaciens presse tm veterinaire ',
+      'kn':' edu gov net org ',
+      'kr':' ac busan chungbuk chungnam co daegu daejeon es gangwon go gwangju gyeongbuk gyeonggi gyeongnam hs incheon jeju jeonbuk jeonnam k kg mil ms ne or pe re sc seoul ulsan ',
+      'kw':' com edu gov net org ',
+      'ky':' com edu gov net org ',
+      'kz':' com edu gov mil net org ',
+      'lb':' com edu gov net org ',
+      'lk':' assn com edu gov grp hotel int ltd net ngo org sch soc web ',
+      'lr':' com edu gov net org ',
+      'lv':' asn com conf edu gov id mil net org ',
+      'ly':' com edu gov id med net org plc sch ',
+      'ma':' ac co gov m net org press ',
+      'mc':' asso tm ',
+      'me':' ac co edu gov its net org priv ',
+      'mg':' com edu gov mil nom org prd tm ',
+      'mk':' com edu gov inf name net org pro ',
+      'ml':' com edu gov net org presse ',
+      'mn':' edu gov org ',
+      'mo':' com edu gov net org ',
+      'mt':' com edu gov net org ',
+      'mv':' aero biz com coop edu gov info int mil museum name net org pro ',
+      'mw':' ac co com coop edu gov int museum net org ',
+      'mx':' com edu gob net org ',
+      'my':' com edu gov mil name net org sch ',
+      'nf':' arts com firm info net other per rec store web ',
+      'ng':' biz com edu gov mil mobi name net org sch ',
+      'ni':' ac co com edu gob mil net nom org ',
+      'np':' com edu gov mil net org ',
+      'nr':' biz com edu gov info net org ',
+      'om':' ac biz co com edu gov med mil museum net org pro sch ',
+      'pe':' com edu gob mil net nom org sld ',
+      'ph':' com edu gov i mil net ngo org ',
+      'pk':' biz com edu fam gob gok gon gop gos gov net org web ',
+      'pl':' art bialystok biz com edu gda gdansk gorzow gov info katowice krakow lodz lublin mil net ngo olsztyn org poznan pwr radom slupsk szczecin torun warszawa waw wroc wroclaw zgora ',
+      'pr':' ac biz com edu est gov info isla name net org pro prof ',
+      'ps':' com edu gov net org plo sec ',
+      'pw':' belau co ed go ne or ',
+      'ro':' arts com firm info nom nt org rec store tm www ',
+      'rs':' ac co edu gov in org ',
+      'sb':' com edu gov net org ',
+      'sc':' com edu gov net org ',
+      'sh':' co com edu gov net nom org ',
+      'sl':' com edu gov net org ',
+      'st':' co com consulado edu embaixada gov mil net org principe saotome store ',
+      'sv':' com edu gob org red ',
+      'sz':' ac co org ',
+      'tr':' av bbs bel biz com dr edu gen gov info k12 name net org pol tel tsk tv web ',
+      'tt':' aero biz cat co com coop edu gov info int jobs mil mobi museum name net org pro tel travel ',
+      'tw':' club com ebiz edu game gov idv mil net org ',
+      'mu':' ac co com gov net or org ',
+      'mz':' ac co edu gov org ',
+      'na':' co com ',
+      'nz':' ac co cri geek gen govt health iwi maori mil net org parliament school ',
+      'pa':' abo ac com edu gob ing med net nom org sld ',
+      'pt':' com edu gov int net nome org publ ',
+      'py':' com edu gov mil net org ',
+      'qa':' com edu gov mil net org ',
+      're':' asso com nom ',
+      'ru':' ac adygeya altai amur arkhangelsk astrakhan bashkiria belgorod bir bryansk buryatia cbg chel chelyabinsk chita chukotka chuvashia com dagestan e-burg edu gov grozny int irkutsk ivanovo izhevsk jar joshkar-ola kalmykia kaluga kamchatka karelia kazan kchr kemerovo khabarovsk khakassia khv kirov koenig komi kostroma kranoyarsk kuban kurgan kursk lipetsk magadan mari mari-el marine mil mordovia mosreg msk murmansk nalchik net nnov nov novosibirsk nsk omsk orenburg org oryol penza perm pp pskov ptz rnd ryazan sakhalin samara saratov simbirsk smolensk spb stavropol stv surgut tambov tatarstan tom tomsk tsaritsyn tsk tula tuva tver tyumen udm udmurtia ulan-ude vladikavkaz vladimir vladivostok volgograd vologda voronezh vrn vyatka yakutia yamal yekaterinburg yuzhno-sakhalinsk ',
+      'rw':' ac co com edu gouv gov int mil net ',
+      'sa':' com edu gov med net org pub sch ',
+      'sd':' com edu gov info med net org tv ',
+      'se':' a ac b bd c d e f g h i k l m n o org p parti pp press r s t tm u w x y z ',
+      'sg':' com edu gov idn net org per ',
+      'sn':' art com edu gouv org perso univ ',
+      'sy':' com edu gov mil net news org ',
+      'th':' ac co go in mi net or ',
+      'tj':' ac biz co com edu go gov info int mil name net nic org test web ',
+      'tn':' agrinet com defense edunet ens fin gov ind info intl mincom nat net org perso rnrt rns rnu tourism ',
+      'tz':' ac co go ne or ',
+      'ua':' biz cherkassy chernigov chernovtsy ck cn co com crimea cv dn dnepropetrovsk donetsk dp edu gov if in ivano-frankivsk kh kharkov kherson khmelnitskiy kiev kirovograd km kr ks kv lg lugansk lutsk lviv me mk net nikolaev od odessa org pl poltava pp rovno rv sebastopol sumy te ternopil uzhgorod vinnica vn zaporizhzhe zhitomir zp zt ',
+      'ug':' ac co go ne or org sc ',
+      'uk':' ac bl british-library co cym gov govt icnet jet lea ltd me mil mod national-library-scotland nel net nhs nic nls org orgn parliament plc police sch scot soc ',
+      'us':' dni fed isa kids nsn ',
+      'uy':' com edu gub mil net org ',
+      've':' co com edu gob info mil net org web ',
+      'vi':' co com k12 net org ',
+      'vn':' ac biz com edu gov health info int name net org pro ',
+      'ye':' co com gov ltd me net org plc ',
+      'yu':' ac co edu gov org ',
+      'za':' ac agric alt bourse city co cybernet db edu gov grondar iaccess imt inca landesign law mil net ngo nis nom olivetti org pix school tm web ',
+      'zm':' ac co com edu gov net org sch '
+    },
+    // gorhill 2013-10-25: Using indexOf() instead Regexp(). Significant boost
+    // in both performance and memory footprint. No initialization required.
+    // http://jsperf.com/uri-js-sld-regex-vs-binary-search/4
+    // Following methods use lastIndexOf() rather than array.split() in order
+    // to avoid any memory allocations.
+    has: function(domain) {
+      var tldOffset = domain.lastIndexOf('.');
+      if (tldOffset <= 0 || tldOffset >= (domain.length-1)) {
+        return false;
+      }
+      var sldOffset = domain.lastIndexOf('.', tldOffset-1);
+      if (sldOffset <= 0 || sldOffset >= (tldOffset-1)) {
+        return false;
+      }
+      var sldList = SLD.list[domain.slice(tldOffset+1)];
+      if (!sldList) {
+        return false;
+      }
+      return sldList.indexOf(' ' + domain.slice(sldOffset+1, tldOffset) + ' ') >= 0;
+    },
+    is: function(domain) {
+      var tldOffset = domain.lastIndexOf('.');
+      if (tldOffset <= 0 || tldOffset >= (domain.length-1)) {
+        return false;
+      }
+      var sldOffset = domain.lastIndexOf('.', tldOffset-1);
+      if (sldOffset >= 0) {
+        return false;
+      }
+      var sldList = SLD.list[domain.slice(tldOffset+1)];
+      if (!sldList) {
+        return false;
+      }
+      return sldList.indexOf(' ' + domain.slice(0, tldOffset) + ' ') >= 0;
+    },
+    get: function(domain) {
+      var tldOffset = domain.lastIndexOf('.');
+      if (tldOffset <= 0 || tldOffset >= (domain.length-1)) {
+        return null;
+      }
+      var sldOffset = domain.lastIndexOf('.', tldOffset-1);
+      if (sldOffset <= 0 || sldOffset >= (tldOffset-1)) {
+        return null;
+      }
+      var sldList = SLD.list[domain.slice(tldOffset+1)];
+      if (!sldList) {
+        return null;
+      }
+      if (sldList.indexOf(' ' + domain.slice(sldOffset+1, tldOffset) + ' ') < 0) {
+        return null;
+      }
+      return domain.slice(sldOffset+1);
+    },
+    noConflict: function(){
+      if (root.SecondLevelDomains === this) {
+        root.SecondLevelDomains = _SecondLevelDomains;
+      }
+      return this;
+    }
+  };
+
+  return SLD;
+}));
+
+},{}],4:[function(require,module,exports){
+/*!
+ * URI.js - Mutating URLs
+ *
+ * Version: 1.13.2
+ *
+ * Author: Rodney Rehm
+ * Web: http://medialize.github.io/URI.js/
+ *
+ * Licensed under
+ *   MIT License http://www.opensource.org/licenses/mit-license
+ *   GPL v3 http://opensource.org/licenses/GPL-3.0
+ *
+ */
+(function (root, factory) {
+  'use strict';
+  // https://github.com/umdjs/umd/blob/master/returnExports.js
+  if (typeof exports === 'object') {
+    // Node
+    module.exports = factory(require('./punycode'), require('./IPv6'), require('./SecondLevelDomains'));
+  } else if (typeof define === 'function' && define.amd) {
+    // AMD. Register as an anonymous module.
+    define(['./punycode', './IPv6', './SecondLevelDomains'], factory);
+  } else {
+    // Browser globals (root is window)
+    root.URI = factory(root.punycode, root.IPv6, root.SecondLevelDomains, root);
+  }
+}(this, function (punycode, IPv6, SLD, root) {
+  'use strict';
+  /*global location, escape, unescape */
+  // FIXME: v2.0.0 renamce non-camelCase properties to uppercase
+  /*jshint camelcase: false */
+
+  // save current URI variable, if any
+  var _URI = root && root.URI;
+
+  function URI(url, base) {
+    // Allow instantiation without the 'new' keyword
+    if (!(this instanceof URI)) {
+      return new URI(url, base);
+    }
+
+    if (url === undefined) {
+      if (typeof location !== 'undefined') {
+        url = location.href + '';
+      } else {
+        url = '';
+      }
+    }
+
+    this.href(url);
+
+    // resolve to base according to http://dvcs.w3.org/hg/url/raw-file/tip/Overview.html#constructor
+    if (base !== undefined) {
+      return this.absoluteTo(base);
+    }
+
+    return this;
+  }
+
+  URI.version = '1.13.2';
+
+  var p = URI.prototype;
+  var hasOwn = Object.prototype.hasOwnProperty;
+
+  function escapeRegEx(string) {
+    // https://github.com/medialize/URI.js/commit/85ac21783c11f8ccab06106dba9735a31a86924d#commitcomment-821963
+    return string.replace(/([.*+?^=!:${}()|[\]\/\\])/g, '\\$1');
+  }
+
+  function getType(value) {
+    // IE8 doesn't return [Object Undefined] but [Object Object] for undefined value
+    if (value === undefined) {
+      return 'Undefined';
+    }
+
+    return String(Object.prototype.toString.call(value)).slice(8, -1);
+  }
+
+  function isArray(obj) {
+    return getType(obj) === 'Array';
+  }
+
+  function filterArrayValues(data, value) {
+    var lookup = {};
+    var i, length;
+
+    if (isArray(value)) {
+      for (i = 0, length = value.length; i < length; i++) {
+        lookup[value[i]] = true;
+      }
+    } else {
+      lookup[value] = true;
+    }
+
+    for (i = 0, length = data.length; i < length; i++) {
+      if (lookup[data[i]] !== undefined) {
+        data.splice(i, 1);
+        length--;
+        i--;
+      }
+    }
+
+    return data;
+  }
+
+  function arrayContains(list, value) {
+    var i, length;
+
+    // value may be string, number, array, regexp
+    if (isArray(value)) {
+      // Note: this can be optimized to O(n) (instead of current O(m * n))
+      for (i = 0, length = value.length; i < length; i++) {
+        if (!arrayContains(list, value[i])) {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    var _type = getType(value);
+    for (i = 0, length = list.length; i < length; i++) {
+      if (_type === 'RegExp') {
+        if (typeof list[i] === 'string' && list[i].match(value)) {
+          return true;
+        }
+      } else if (list[i] === value) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function arraysEqual(one, two) {
+    if (!isArray(one) || !isArray(two)) {
+      return false;
+    }
+
+    // arrays can't be equal if they have different amount of content
+    if (one.length !== two.length) {
+      return false;
+    }
+
+    one.sort();
+    two.sort();
+
+    for (var i = 0, l = one.length; i < l; i++) {
+      if (one[i] !== two[i]) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  URI._parts = function() {
+    return {
+      protocol: null,
+      username: null,
+      password: null,
+      hostname: null,
+      urn: null,
+      port: null,
+      path: null,
+      query: null,
+      fragment: null,
+      // state
+      duplicateQueryParameters: URI.duplicateQueryParameters,
+      escapeQuerySpace: URI.escapeQuerySpace
+    };
+  };
+  // state: allow duplicate query parameters (a=1&a=1)
+  URI.duplicateQueryParameters = false;
+  // state: replaces + with %20 (space in query strings)
+  URI.escapeQuerySpace = true;
+  // static properties
+  URI.protocol_expression = /^[a-z][a-z0-9.+-]*$/i;
+  URI.idn_expression = /[^a-z0-9\.-]/i;
+  URI.punycode_expression = /(xn--)/i;
+  // well, 333.444.555.666 matches, but it sure ain't no IPv4 - do we care?
+  URI.ip4_expression = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+  // credits to Rich Brown
+  // source: http://forums.intermapper.com/viewtopic.php?p=1096#1096
+  // specification: http://www.ietf.org/rfc/rfc4291.txt
+  URI.ip6_expression = /^\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$/;
+  // expression used is "gruber revised" (@gruber v2) determined to be the
+  // best solution in a regex-golf we did a couple of ages ago at
+  // * http://mathiasbynens.be/demo/url-regex
+  // * http://rodneyrehm.de/t/url-regex.html
+  URI.find_uri_expression = /\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'".,<>?«»“”‘’]))/ig;
+  URI.findUri = {
+    // valid "scheme://" or "www."
+    start: /\b(?:([a-z][a-z0-9.+-]*:\/\/)|www\.)/gi,
+    // everything up to the next whitespace
+    end: /[\s\r\n]|$/,
+    // trim trailing punctuation captured by end RegExp
+    trim: /[`!()\[\]{};:'".,<>?«»“”„‘’]+$/
+  };
+  // http://www.iana.org/assignments/uri-schemes.html
+  // http://en.wikipedia.org/wiki/List_of_TCP_and_UDP_port_numbers#Well-known_ports
+  URI.defaultPorts = {
+    http: '80',
+    https: '443',
+    ftp: '21',
+    gopher: '70',
+    ws: '80',
+    wss: '443'
+  };
+  // allowed hostname characters according to RFC 3986
+  // ALPHA DIGIT "-" "." "_" "~" "!" "$" "&" "'" "(" ")" "*" "+" "," ";" "=" %encoded
+  // I've never seen a (non-IDN) hostname other than: ALPHA DIGIT . -
+  URI.invalid_hostname_characters = /[^a-zA-Z0-9\.-]/;
+  // map DOM Elements to their URI attribute
+  URI.domAttributes = {
+    'a': 'href',
+    'blockquote': 'cite',
+    'link': 'href',
+    'base': 'href',
+    'script': 'src',
+    'form': 'action',
+    'img': 'src',
+    'area': 'href',
+    'iframe': 'src',
+    'embed': 'src',
+    'source': 'src',
+    'track': 'src',
+    'input': 'src' // but only if type="image"
+  };
+  URI.getDomAttribute = function(node) {
+    if (!node || !node.nodeName) {
+      return undefined;
+    }
+
+    var nodeName = node.nodeName.toLowerCase();
+    // <input> should only expose src for type="image"
+    if (nodeName === 'input' && node.type !== 'image') {
+      return undefined;
+    }
+
+    return URI.domAttributes[nodeName];
+  };
+
+  function escapeForDumbFirefox36(value) {
+    // https://github.com/medialize/URI.js/issues/91
+    return escape(value);
+  }
+
+  // encoding / decoding according to RFC3986
+  function strictEncodeURIComponent(string) {
+    // see https://developer.mozilla.org/en-US/docs/JavaScript/Reference/Global_Objects/encodeURIComponent
+    return encodeURIComponent(string)
+      .replace(/[!'()*]/g, escapeForDumbFirefox36)
+      .replace(/\*/g, '%2A');
+  }
+  URI.encode = strictEncodeURIComponent;
+  URI.decode = decodeURIComponent;
+  URI.iso8859 = function() {
+    URI.encode = escape;
+    URI.decode = unescape;
+  };
+  URI.unicode = function() {
+    URI.encode = strictEncodeURIComponent;
+    URI.decode = decodeURIComponent;
+  };
+  URI.characters = {
+    pathname: {
+      encode: {
+        // RFC3986 2.1: For consistency, URI producers and normalizers should
+        // use uppercase hexadecimal digits for all percent-encodings.
+        expression: /%(24|26|2B|2C|3B|3D|3A|40)/ig,
+        map: {
+          // -._~!'()*
+          '%24': '$',
+          '%26': '&',
+          '%2B': '+',
+          '%2C': ',',
+          '%3B': ';',
+          '%3D': '=',
+          '%3A': ':',
+          '%40': '@'
+        }
+      },
+      decode: {
+        expression: /[\/\?#]/g,
+        map: {
+          '/': '%2F',
+          '?': '%3F',
+          '#': '%23'
+        }
+      }
+    },
+    reserved: {
+      encode: {
+        // RFC3986 2.1: For consistency, URI producers and normalizers should
+        // use uppercase hexadecimal digits for all percent-encodings.
+        expression: /%(21|23|24|26|27|28|29|2A|2B|2C|2F|3A|3B|3D|3F|40|5B|5D)/ig,
+        map: {
+          // gen-delims
+          '%3A': ':',
+          '%2F': '/',
+          '%3F': '?',
+          '%23': '#',
+          '%5B': '[',
+          '%5D': ']',
+          '%40': '@',
+          // sub-delims
+          '%21': '!',
+          '%24': '$',
+          '%26': '&',
+          '%27': '\'',
+          '%28': '(',
+          '%29': ')',
+          '%2A': '*',
+          '%2B': '+',
+          '%2C': ',',
+          '%3B': ';',
+          '%3D': '='
+        }
+      }
+    }
+  };
+  URI.encodeQuery = function(string, escapeQuerySpace) {
+    var escaped = URI.encode(string + '');
+    if (escapeQuerySpace === undefined) {
+      escapeQuerySpace = URI.escapeQuerySpace;
+    }
+
+    return escapeQuerySpace ? escaped.replace(/%20/g, '+') : escaped;
+  };
+  URI.decodeQuery = function(string, escapeQuerySpace) {
+    string += '';
+    if (escapeQuerySpace === undefined) {
+      escapeQuerySpace = URI.escapeQuerySpace;
+    }
+
+    try {
+      return URI.decode(escapeQuerySpace ? string.replace(/\+/g, '%20') : string);
+    } catch(e) {
+      // we're not going to mess with weird encodings,
+      // give up and return the undecoded original string
+      // see https://github.com/medialize/URI.js/issues/87
+      // see https://github.com/medialize/URI.js/issues/92
+      return string;
+    }
+  };
+  URI.recodePath = function(string) {
+    var segments = (string + '').split('/');
+    for (var i = 0, length = segments.length; i < length; i++) {
+      segments[i] = URI.encodePathSegment(URI.decode(segments[i]));
+    }
+
+    return segments.join('/');
+  };
+  URI.decodePath = function(string) {
+    var segments = (string + '').split('/');
+    for (var i = 0, length = segments.length; i < length; i++) {
+      segments[i] = URI.decodePathSegment(segments[i]);
+    }
+
+    return segments.join('/');
+  };
+  // generate encode/decode path functions
+  var _parts = {'encode':'encode', 'decode':'decode'};
+  var _part;
+  var generateAccessor = function(_group, _part) {
+    return function(string) {
+      return URI[_part](string + '').replace(URI.characters[_group][_part].expression, function(c) {
+        return URI.characters[_group][_part].map[c];
+      });
+    };
+  };
+
+  for (_part in _parts) {
+    URI[_part + 'PathSegment'] = generateAccessor('pathname', _parts[_part]);
+  }
+
+  URI.encodeReserved = generateAccessor('reserved', 'encode');
+
+  URI.parse = function(string, parts) {
+    var pos;
+    if (!parts) {
+      parts = {};
+    }
+    // [protocol"://"[username[":"password]"@"]hostname[":"port]"/"?][path]["?"querystring]["#"fragment]
+
+    // extract fragment
+    pos = string.indexOf('#');
+    if (pos > -1) {
+      // escaping?
+      parts.fragment = string.substring(pos + 1) || null;
+      string = string.substring(0, pos);
+    }
+
+    // extract query
+    pos = string.indexOf('?');
+    if (pos > -1) {
+      // escaping?
+      parts.query = string.substring(pos + 1) || null;
+      string = string.substring(0, pos);
+    }
+
+    // extract protocol
+    if (string.substring(0, 2) === '//') {
+      // relative-scheme
+      parts.protocol = null;
+      string = string.substring(2);
+      // extract "user:pass@host:port"
+      string = URI.parseAuthority(string, parts);
+    } else {
+      pos = string.indexOf(':');
+      if (pos > -1) {
+        parts.protocol = string.substring(0, pos) || null;
+        if (parts.protocol && !parts.protocol.match(URI.protocol_expression)) {
+          // : may be within the path
+          parts.protocol = undefined;
+        } else if (parts.protocol === 'file') {
+          // the file scheme: does not contain an authority
+          string = string.substring(pos + 3);
+        } else if (string.substring(pos + 1, pos + 3) === '//') {
+          string = string.substring(pos + 3);
+
+          // extract "user:pass@host:port"
+          string = URI.parseAuthority(string, parts);
+        } else {
+          string = string.substring(pos + 1);
+          parts.urn = true;
+        }
+      }
+    }
+
+    // what's left must be the path
+    parts.path = string;
+
+    // and we're done
+    return parts;
+  };
+  URI.parseHost = function(string, parts) {
+    // extract host:port
+    var pos = string.indexOf('/');
+    var bracketPos;
+    var t;
+
+    if (pos === -1) {
+      pos = string.length;
+    }
+
+    if (string.charAt(0) === '[') {
+      // IPv6 host - http://tools.ietf.org/html/draft-ietf-6man-text-addr-representation-04#section-6
+      // I claim most client software breaks on IPv6 anyways. To simplify things, URI only accepts
+      // IPv6+port in the format [2001:db8::1]:80 (for the time being)
+      bracketPos = string.indexOf(']');
+      parts.hostname = string.substring(1, bracketPos) || null;
+      parts.port = string.substring(bracketPos + 2, pos) || null;
+      if (parts.port === '/') {
+        parts.port = null;
+      }
+    } else if (string.indexOf(':') !== string.lastIndexOf(':')) {
+      // IPv6 host contains multiple colons - but no port
+      // this notation is actually not allowed by RFC 3986, but we're a liberal parser
+      parts.hostname = string.substring(0, pos) || null;
+      parts.port = null;
+    } else {
+      t = string.substring(0, pos).split(':');
+      parts.hostname = t[0] || null;
+      parts.port = t[1] || null;
+    }
+
+    if (parts.hostname && string.substring(pos).charAt(0) !== '/') {
+      pos++;
+      string = '/' + string;
+    }
+
+    return string.substring(pos) || '/';
+  };
+  URI.parseAuthority = function(string, parts) {
+    string = URI.parseUserinfo(string, parts);
+    return URI.parseHost(string, parts);
+  };
+  URI.parseUserinfo = function(string, parts) {
+    // extract username:password
+    var firstSlash = string.indexOf('/');
+    /*jshint laxbreak: true */
+    var pos = firstSlash > -1
+      ? string.lastIndexOf('@', firstSlash)
+      : string.indexOf('@');
+    /*jshint laxbreak: false */
+    var t;
+
+    // authority@ must come before /path
+    if (pos > -1 && (firstSlash === -1 || pos < firstSlash)) {
+      t = string.substring(0, pos).split(':');
+      parts.username = t[0] ? URI.decode(t[0]) : null;
+      t.shift();
+      parts.password = t[0] ? URI.decode(t.join(':')) : null;
+      string = string.substring(pos + 1);
+    } else {
+      parts.username = null;
+      parts.password = null;
+    }
+
+    return string;
+  };
+  URI.parseQuery = function(string, escapeQuerySpace) {
+    if (!string) {
+      return {};
+    }
+
+    // throw out the funky business - "?"[name"="value"&"]+
+    string = string.replace(/&+/g, '&').replace(/^\?*&*|&+$/g, '');
+
+    if (!string) {
+      return {};
+    }
+
+    var items = {};
+    var splits = string.split('&');
+    var length = splits.length;
+    var v, name, value;
+
+    for (var i = 0; i < length; i++) {
+      v = splits[i].split('=');
+      name = URI.decodeQuery(v.shift(), escapeQuerySpace);
+      // no "=" is null according to http://dvcs.w3.org/hg/url/raw-file/tip/Overview.html#collect-url-parameters
+      value = v.length ? URI.decodeQuery(v.join('='), escapeQuerySpace) : null;
+
+      if (items[name]) {
+        if (typeof items[name] === 'string') {
+          items[name] = [items[name]];
         }
 
-        //Apply map config if available.
-        if ((baseParts || starMap) && map) {
-            nameParts = name.split('/');
+        items[name].push(value);
+      } else {
+        items[name] = value;
+      }
+    }
 
-            for (i = nameParts.length; i > 0; i -= 1) {
-                nameSegment = nameParts.slice(0, i).join("/");
+    return items;
+  };
 
-                if (baseParts) {
-                    //Find the longest baseName segment match in the config.
-                    //So, do joins on the biggest to smallest lengths of baseParts.
-                    for (j = baseParts.length; j > 0; j -= 1) {
-                        mapValue = map[baseParts.slice(0, j).join('/')];
+  URI.build = function(parts) {
+    var t = '';
 
-                        //baseName segment has  config, find if it has one for
-                        //this name.
-                        if (mapValue) {
-                            mapValue = mapValue[nameSegment];
-                            if (mapValue) {
-                                //Match, update name to the new value.
-                                foundMap = mapValue;
-                                foundI = i;
-                                break;
-                            }
-                        }
-                    }
-                }
+    if (parts.protocol) {
+      t += parts.protocol + ':';
+    }
 
-                if (foundMap) {
-                    break;
-                }
+    if (!parts.urn && (t || parts.hostname)) {
+      t += '//';
+    }
 
-                //Check for a star map match, but just hold on to it,
-                //if there is a shorter segment match later in a matching
-                //config, then favor over this star map.
-                if (!foundStarMap && starMap && starMap[nameSegment]) {
-                    foundStarMap = starMap[nameSegment];
-                    starI = i;
-                }
+    t += (URI.buildAuthority(parts) || '');
+
+    if (typeof parts.path === 'string') {
+      if (parts.path.charAt(0) !== '/' && typeof parts.hostname === 'string') {
+        t += '/';
+      }
+
+      t += parts.path;
+    }
+
+    if (typeof parts.query === 'string' && parts.query) {
+      t += '?' + parts.query;
+    }
+
+    if (typeof parts.fragment === 'string' && parts.fragment) {
+      t += '#' + parts.fragment;
+    }
+    return t;
+  };
+  URI.buildHost = function(parts) {
+    var t = '';
+
+    if (!parts.hostname) {
+      return '';
+    } else if (URI.ip6_expression.test(parts.hostname)) {
+      t += '[' + parts.hostname + ']';
+    } else {
+      t += parts.hostname;
+    }
+
+    if (parts.port) {
+      t += ':' + parts.port;
+    }
+
+    return t;
+  };
+  URI.buildAuthority = function(parts) {
+    return URI.buildUserinfo(parts) + URI.buildHost(parts);
+  };
+  URI.buildUserinfo = function(parts) {
+    var t = '';
+
+    if (parts.username) {
+      t += URI.encode(parts.username);
+
+      if (parts.password) {
+        t += ':' + URI.encode(parts.password);
+      }
+
+      t += '@';
+    }
+
+    return t;
+  };
+  URI.buildQuery = function(data, duplicateQueryParameters, escapeQuerySpace) {
+    // according to http://tools.ietf.org/html/rfc3986 or http://labs.apache.org/webarch/uri/rfc/rfc3986.html
+    // being »-._~!$&'()*+,;=:@/?« %HEX and alnum are allowed
+    // the RFC explicitly states ?/foo being a valid use case, no mention of parameter syntax!
+    // URI.js treats the query string as being application/x-www-form-urlencoded
+    // see http://www.w3.org/TR/REC-html40/interact/forms.html#form-content-type
+
+    var t = '';
+    var unique, key, i, length;
+    for (key in data) {
+      if (hasOwn.call(data, key) && key) {
+        if (isArray(data[key])) {
+          unique = {};
+          for (i = 0, length = data[key].length; i < length; i++) {
+            if (data[key][i] !== undefined && unique[data[key][i] + ''] === undefined) {
+              t += '&' + URI.buildQueryParameter(key, data[key][i], escapeQuerySpace);
+              if (duplicateQueryParameters !== true) {
+                unique[data[key][i] + ''] = true;
+              }
             }
+          }
+        } else if (data[key] !== undefined) {
+          t += '&' + URI.buildQueryParameter(key, data[key], escapeQuerySpace);
+        }
+      }
+    }
 
-            if (!foundMap && foundStarMap) {
-                foundMap = foundStarMap;
-                foundI = starI;
-            }
+    return t.substring(1);
+  };
+  URI.buildQueryParameter = function(name, value, escapeQuerySpace) {
+    // http://www.w3.org/TR/REC-html40/interact/forms.html#form-content-type -- application/x-www-form-urlencoded
+    // don't append "=" for null values, according to http://dvcs.w3.org/hg/url/raw-file/tip/Overview.html#url-parameter-serialization
+    return URI.encodeQuery(name, escapeQuerySpace) + (value !== null ? '=' + URI.encodeQuery(value, escapeQuerySpace) : '');
+  };
 
-            if (foundMap) {
-                nameParts.splice(0, foundI, foundMap);
-                name = nameParts.join('/');
-            }
+  URI.addQuery = function(data, name, value) {
+    if (typeof name === 'object') {
+      for (var key in name) {
+        if (hasOwn.call(name, key)) {
+          URI.addQuery(data, key, name[key]);
+        }
+      }
+    } else if (typeof name === 'string') {
+      if (data[name] === undefined) {
+        data[name] = value;
+        return;
+      } else if (typeof data[name] === 'string') {
+        data[name] = [data[name]];
+      }
+
+      if (!isArray(value)) {
+        value = [value];
+      }
+
+      data[name] = data[name].concat(value);
+    } else {
+      throw new TypeError('URI.addQuery() accepts an object, string as the name parameter');
+    }
+  };
+  URI.removeQuery = function(data, name, value) {
+    var i, length, key;
+
+    if (isArray(name)) {
+      for (i = 0, length = name.length; i < length; i++) {
+        data[name[i]] = undefined;
+      }
+    } else if (typeof name === 'object') {
+      for (key in name) {
+        if (hasOwn.call(name, key)) {
+          URI.removeQuery(data, key, name[key]);
+        }
+      }
+    } else if (typeof name === 'string') {
+      if (value !== undefined) {
+        if (data[name] === value) {
+          data[name] = undefined;
+        } else if (isArray(data[name])) {
+          data[name] = filterArrayValues(data[name], value);
+        }
+      } else {
+        data[name] = undefined;
+      }
+    } else {
+      throw new TypeError('URI.addQuery() accepts an object, string as the first parameter');
+    }
+  };
+  URI.hasQuery = function(data, name, value, withinArray) {
+    if (typeof name === 'object') {
+      for (var key in name) {
+        if (hasOwn.call(name, key)) {
+          if (!URI.hasQuery(data, key, name[key])) {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    } else if (typeof name !== 'string') {
+      throw new TypeError('URI.hasQuery() accepts an object, string as the name parameter');
+    }
+
+    switch (getType(value)) {
+      case 'Undefined':
+        // true if exists (but may be empty)
+        return name in data; // data[name] !== undefined;
+
+      case 'Boolean':
+        // true if exists and non-empty
+        var _booly = Boolean(isArray(data[name]) ? data[name].length : data[name]);
+        return value === _booly;
+
+      case 'Function':
+        // allow complex comparison
+        return !!value(data[name], name, data);
+
+      case 'Array':
+        if (!isArray(data[name])) {
+          return false;
         }
 
+        var op = withinArray ? arrayContains : arraysEqual;
+        return op(data[name], value);
+
+      case 'RegExp':
+        if (!isArray(data[name])) {
+          return Boolean(data[name] && data[name].match(value));
+        }
+
+        if (!withinArray) {
+          return false;
+        }
+
+        return arrayContains(data[name], value);
+
+      case 'Number':
+        value = String(value);
+        /* falls through */
+      case 'String':
+        if (!isArray(data[name])) {
+          return data[name] === value;
+        }
+
+        if (!withinArray) {
+          return false;
+        }
+
+        return arrayContains(data[name], value);
+
+      default:
+        throw new TypeError('URI.hasQuery() accepts undefined, boolean, string, number, RegExp, Function as the value parameter');
+    }
+  };
+
+
+  URI.commonPath = function(one, two) {
+    var length = Math.min(one.length, two.length);
+    var pos;
+
+    // find first non-matching character
+    for (pos = 0; pos < length; pos++) {
+      if (one.charAt(pos) !== two.charAt(pos)) {
+        pos--;
+        break;
+      }
+    }
+
+    if (pos < 1) {
+      return one.charAt(0) === two.charAt(0) && one.charAt(0) === '/' ? '/' : '';
+    }
+
+    // revert to last /
+    if (one.charAt(pos) !== '/' || two.charAt(pos) !== '/') {
+      pos = one.substring(0, pos).lastIndexOf('/');
+    }
+
+    return one.substring(0, pos + 1);
+  };
+
+  URI.withinString = function(string, callback, options) {
+    options || (options = {});
+    var _start = options.start || URI.findUri.start;
+    var _end = options.end || URI.findUri.end;
+    var _trim = options.trim || URI.findUri.trim;
+    var _attributeOpen = /[a-z0-9-]=["']?$/i;
+
+    _start.lastIndex = 0;
+    while (true) {
+      var match = _start.exec(string);
+      if (!match) {
+        break;
+      }
+
+      var start = match.index;
+      if (options.ignoreHtml) {
+        // attribut(e=["']?$)
+        var attributeOpen = string.slice(Math.max(start - 3, 0), start);
+        if (attributeOpen && _attributeOpen.test(attributeOpen)) {
+          continue;
+        }
+      }
+
+      var end = start + string.slice(start).search(_end);
+      var slice = string.slice(start, end).replace(_trim, '');
+      if (options.ignore && options.ignore.test(slice)) {
+        continue;
+      }
+
+      end = start + slice.length;
+      var result = callback(slice, start, end, string);
+      string = string.slice(0, start) + result + string.slice(end);
+      _start.lastIndex = start + result.length;
+    }
+
+    _start.lastIndex = 0;
+    return string;
+  };
+
+  URI.ensureValidHostname = function(v) {
+    // Theoretically URIs allow percent-encoding in Hostnames (according to RFC 3986)
+    // they are not part of DNS and therefore ignored by URI.js
+
+    if (v.match(URI.invalid_hostname_characters)) {
+      // test punycode
+      if (!punycode) {
+        throw new TypeError('Hostname "' + v + '" contains characters other than [A-Z0-9.-] and Punycode.js is not available');
+      }
+
+      if (punycode.toASCII(v).match(URI.invalid_hostname_characters)) {
+        throw new TypeError('Hostname "' + v + '" contains characters other than [A-Z0-9.-]');
+      }
+    }
+  };
+
+  // noConflict
+  URI.noConflict = function(removeAll) {
+    if (removeAll) {
+      var unconflicted = {
+        URI: this.noConflict()
+      };
+
+      if (root.URITemplate && typeof root.URITemplate.noConflict === 'function') {
+        unconflicted.URITemplate = root.URITemplate.noConflict();
+      }
+
+      if (root.IPv6 && typeof root.IPv6.noConflict === 'function') {
+        unconflicted.IPv6 = root.IPv6.noConflict();
+      }
+
+      if (root.SecondLevelDomains && typeof root.SecondLevelDomains.noConflict === 'function') {
+        unconflicted.SecondLevelDomains = root.SecondLevelDomains.noConflict();
+      }
+
+      return unconflicted;
+    } else if (root.URI === this) {
+      root.URI = _URI;
+    }
+
+    return this;
+  };
+
+  p.build = function(deferBuild) {
+    if (deferBuild === true) {
+      this._deferred_build = true;
+    } else if (deferBuild === undefined || this._deferred_build) {
+      this._string = URI.build(this._parts);
+      this._deferred_build = false;
+    }
+
+    return this;
+  };
+
+  p.clone = function() {
+    return new URI(this);
+  };
+
+  p.valueOf = p.toString = function() {
+    return this.build(false)._string;
+  };
+
+  // generate simple accessors
+  _parts = {protocol: 'protocol', username: 'username', password: 'password', hostname: 'hostname',  port: 'port'};
+  generateAccessor = function(_part){
+    return function(v, build) {
+      if (v === undefined) {
+        return this._parts[_part] || '';
+      } else {
+        this._parts[_part] = v || null;
+        this.build(!build);
+        return this;
+      }
+    };
+  };
+
+  for (_part in _parts) {
+    p[_part] = generateAccessor(_parts[_part]);
+  }
+
+  // generate accessors with optionally prefixed input
+  _parts = {query: '?', fragment: '#'};
+  generateAccessor = function(_part, _key){
+    return function(v, build) {
+      if (v === undefined) {
+        return this._parts[_part] || '';
+      } else {
+        if (v !== null) {
+          v = v + '';
+          if (v.charAt(0) === _key) {
+            v = v.substring(1);
+          }
+        }
+
+        this._parts[_part] = v;
+        this.build(!build);
+        return this;
+      }
+    };
+  };
+
+  for (_part in _parts) {
+    p[_part] = generateAccessor(_part, _parts[_part]);
+  }
+
+  // generate accessors with prefixed output
+  _parts = {search: ['?', 'query'], hash: ['#', 'fragment']};
+  generateAccessor = function(_part, _key){
+    return function(v, build) {
+      var t = this[_part](v, build);
+      return typeof t === 'string' && t.length ? (_key + t) : t;
+    };
+  };
+
+  for (_part in _parts) {
+    p[_part] = generateAccessor(_parts[_part][1], _parts[_part][0]);
+  }
+
+  p.pathname = function(v, build) {
+    if (v === undefined || v === true) {
+      var res = this._parts.path || (this._parts.hostname ? '/' : '');
+      return v ? URI.decodePath(res) : res;
+    } else {
+      this._parts.path = v ? URI.recodePath(v) : '/';
+      this.build(!build);
+      return this;
+    }
+  };
+  p.path = p.pathname;
+  p.href = function(href, build) {
+    var key;
+
+    if (href === undefined) {
+      return this.toString();
+    }
+
+    this._string = '';
+    this._parts = URI._parts();
+
+    var _URI = href instanceof URI;
+    var _object = typeof href === 'object' && (href.hostname || href.path || href.pathname);
+    if (href.nodeName) {
+      var attribute = URI.getDomAttribute(href);
+      href = href[attribute] || '';
+      _object = false;
+    }
+
+    // window.location is reported to be an object, but it's not the sort
+    // of object we're looking for:
+    // * location.protocol ends with a colon
+    // * location.query != object.search
+    // * location.hash != object.fragment
+    // simply serializing the unknown object should do the trick
+    // (for location, not for everything...)
+    if (!_URI && _object && href.pathname !== undefined) {
+      href = href.toString();
+    }
+
+    if (typeof href === 'string') {
+      this._parts = URI.parse(href, this._parts);
+    } else if (_URI || _object) {
+      var src = _URI ? href._parts : href;
+      for (key in src) {
+        if (hasOwn.call(this._parts, key)) {
+          this._parts[key] = src[key];
+        }
+      }
+    } else {
+      throw new TypeError('invalid input');
+    }
+
+    this.build(!build);
+    return this;
+  };
+
+  // identification accessors
+  p.is = function(what) {
+    var ip = false;
+    var ip4 = false;
+    var ip6 = false;
+    var name = false;
+    var sld = false;
+    var idn = false;
+    var punycode = false;
+    var relative = !this._parts.urn;
+
+    if (this._parts.hostname) {
+      relative = false;
+      ip4 = URI.ip4_expression.test(this._parts.hostname);
+      ip6 = URI.ip6_expression.test(this._parts.hostname);
+      ip = ip4 || ip6;
+      name = !ip;
+      sld = name && SLD && SLD.has(this._parts.hostname);
+      idn = name && URI.idn_expression.test(this._parts.hostname);
+      punycode = name && URI.punycode_expression.test(this._parts.hostname);
+    }
+
+    switch (what.toLowerCase()) {
+      case 'relative':
+        return relative;
+
+      case 'absolute':
+        return !relative;
+
+      // hostname identification
+      case 'domain':
+      case 'name':
         return name;
+
+      case 'sld':
+        return sld;
+
+      case 'ip':
+        return ip;
+
+      case 'ip4':
+      case 'ipv4':
+      case 'inet4':
+        return ip4;
+
+      case 'ip6':
+      case 'ipv6':
+      case 'inet6':
+        return ip6;
+
+      case 'idn':
+        return idn;
+
+      case 'url':
+        return !this._parts.urn;
+
+      case 'urn':
+        return !!this._parts.urn;
+
+      case 'punycode':
+        return punycode;
     }
 
-    function makeRequire(relName, forceSync) {
-        return function () {
-            //A version of a require function that passes a moduleName
-            //value for items that may need to
-            //look up paths relative to the moduleName
-            return req.apply(undef, aps.call(arguments, 0).concat([relName, forceSync]));
-        };
+    return null;
+  };
+
+  // component specific input validation
+  var _protocol = p.protocol;
+  var _port = p.port;
+  var _hostname = p.hostname;
+
+  p.protocol = function(v, build) {
+    if (v !== undefined) {
+      if (v) {
+        // accept trailing ://
+        v = v.replace(/:(\/\/)?$/, '');
+
+        if (!v.match(URI.protocol_expression)) {
+          throw new TypeError('Protocol "' + v + '" contains characters other than [A-Z0-9.+-] or doesn\'t start with [A-Z]');
+        }
+      }
+    }
+    return _protocol.call(this, v, build);
+  };
+  p.scheme = p.protocol;
+  p.port = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
     }
 
-    function makeNormalize(relName) {
-        return function (name) {
-            return normalize(name, relName);
-        };
-    }
+    if (v !== undefined) {
+      if (v === 0) {
+        v = null;
+      }
 
-    function makeLoad(depName) {
-        return function (value) {
-            defined[depName] = value;
-        };
-    }
-
-    function callDep(name) {
-        if (hasProp(waiting, name)) {
-            var args = waiting[name];
-            delete waiting[name];
-            defining[name] = true;
-            main.apply(undef, args);
+      if (v) {
+        v += '';
+        if (v.charAt(0) === ':') {
+          v = v.substring(1);
         }
 
-        if (!hasProp(defined, name) && !hasProp(defining, name)) {
-            throw new Error('No ' + name);
+        if (v.match(/[^0-9]/)) {
+          throw new TypeError('Port "' + v + '" contains characters other than [0-9]');
         }
-        return defined[name];
+      }
+    }
+    return _port.call(this, v, build);
+  };
+  p.hostname = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
     }
 
-    //Turns a plugin!resource to [plugin, resource]
-    //with the plugin being undefined if the name
-    //did not have a plugin prefix.
-    function splitPrefix(name) {
-        var prefix,
-            index = name ? name.indexOf('!') : -1;
-        if (index > -1) {
-            prefix = name.substring(0, index);
-            name = name.substring(index + 1, name.length);
-        }
-        return [prefix, name];
+    if (v !== undefined) {
+      var x = {};
+      URI.parseHost(v, x);
+      v = x.hostname;
+    }
+    return _hostname.call(this, v, build);
+  };
+
+  // compound accessors
+  p.host = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
     }
 
-    /**
-     * Makes a name map, normalizing the name, and using a plugin
-     * for normalization if necessary. Grabs a ref to plugin
-     * too, as an optimization.
-     */
-    makeMap = function (name, relName) {
-        var plugin,
-            parts = splitPrefix(name),
-            prefix = parts[0];
+    if (v === undefined) {
+      return this._parts.hostname ? URI.buildHost(this._parts) : '';
+    } else {
+      URI.parseHost(v, this._parts);
+      this.build(!build);
+      return this;
+    }
+  };
+  p.authority = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
+    }
 
-        name = parts[1];
+    if (v === undefined) {
+      return this._parts.hostname ? URI.buildAuthority(this._parts) : '';
+    } else {
+      URI.parseAuthority(v, this._parts);
+      this.build(!build);
+      return this;
+    }
+  };
+  p.userinfo = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
+    }
 
-        if (prefix) {
-            prefix = normalize(prefix, relName);
-            plugin = callDep(prefix);
-        }
+    if (v === undefined) {
+      if (!this._parts.username) {
+        return '';
+      }
 
-        //Normalize according
-        if (prefix) {
-            if (plugin && plugin.normalize) {
-                name = plugin.normalize(name, makeNormalize(relName));
-            } else {
-                name = normalize(name, relName);
-            }
+      var t = URI.buildUserinfo(this._parts);
+      return t.substring(0, t.length -1);
+    } else {
+      if (v[v.length-1] !== '@') {
+        v += '@';
+      }
+
+      URI.parseUserinfo(v, this._parts);
+      this.build(!build);
+      return this;
+    }
+  };
+  p.resource = function(v, build) {
+    var parts;
+
+    if (v === undefined) {
+      return this.path() + this.search() + this.hash();
+    }
+
+    parts = URI.parse(v);
+    this._parts.path = parts.path;
+    this._parts.query = parts.query;
+    this._parts.fragment = parts.fragment;
+    this.build(!build);
+    return this;
+  };
+
+  // fraction accessors
+  p.subdomain = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
+    }
+
+    // convenience, return "www" from "www.example.org"
+    if (v === undefined) {
+      if (!this._parts.hostname || this.is('IP')) {
+        return '';
+      }
+
+      // grab domain and add another segment
+      var end = this._parts.hostname.length - this.domain().length - 1;
+      return this._parts.hostname.substring(0, end) || '';
+    } else {
+      var e = this._parts.hostname.length - this.domain().length;
+      var sub = this._parts.hostname.substring(0, e);
+      var replace = new RegExp('^' + escapeRegEx(sub));
+
+      if (v && v.charAt(v.length - 1) !== '.') {
+        v += '.';
+      }
+
+      if (v) {
+        URI.ensureValidHostname(v);
+      }
+
+      this._parts.hostname = this._parts.hostname.replace(replace, v);
+      this.build(!build);
+      return this;
+    }
+  };
+  p.domain = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
+    }
+
+    if (typeof v === 'boolean') {
+      build = v;
+      v = undefined;
+    }
+
+    // convenience, return "example.org" from "www.example.org"
+    if (v === undefined) {
+      if (!this._parts.hostname || this.is('IP')) {
+        return '';
+      }
+
+      // if hostname consists of 1 or 2 segments, it must be the domain
+      var t = this._parts.hostname.match(/\./g);
+      if (t && t.length < 2) {
+        return this._parts.hostname;
+      }
+
+      // grab tld and add another segment
+      var end = this._parts.hostname.length - this.tld(build).length - 1;
+      end = this._parts.hostname.lastIndexOf('.', end -1) + 1;
+      return this._parts.hostname.substring(end) || '';
+    } else {
+      if (!v) {
+        throw new TypeError('cannot set domain empty');
+      }
+
+      URI.ensureValidHostname(v);
+
+      if (!this._parts.hostname || this.is('IP')) {
+        this._parts.hostname = v;
+      } else {
+        var replace = new RegExp(escapeRegEx(this.domain()) + '$');
+        this._parts.hostname = this._parts.hostname.replace(replace, v);
+      }
+
+      this.build(!build);
+      return this;
+    }
+  };
+  p.tld = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
+    }
+
+    if (typeof v === 'boolean') {
+      build = v;
+      v = undefined;
+    }
+
+    // return "org" from "www.example.org"
+    if (v === undefined) {
+      if (!this._parts.hostname || this.is('IP')) {
+        return '';
+      }
+
+      var pos = this._parts.hostname.lastIndexOf('.');
+      var tld = this._parts.hostname.substring(pos + 1);
+
+      if (build !== true && SLD && SLD.list[tld.toLowerCase()]) {
+        return SLD.get(this._parts.hostname) || tld;
+      }
+
+      return tld;
+    } else {
+      var replace;
+
+      if (!v) {
+        throw new TypeError('cannot set TLD empty');
+      } else if (v.match(/[^a-zA-Z0-9-]/)) {
+        if (SLD && SLD.is(v)) {
+          replace = new RegExp(escapeRegEx(this.tld()) + '$');
+          this._parts.hostname = this._parts.hostname.replace(replace, v);
         } else {
-            name = normalize(name, relName);
-            parts = splitPrefix(name);
-            prefix = parts[0];
-            name = parts[1];
-            if (prefix) {
-                plugin = callDep(prefix);
-            }
+          throw new TypeError('TLD "' + v + '" contains characters other than [A-Z0-9]');
         }
+      } else if (!this._parts.hostname || this.is('IP')) {
+        throw new ReferenceError('cannot set TLD on non-domain host');
+      } else {
+        replace = new RegExp(escapeRegEx(this.tld()) + '$');
+        this._parts.hostname = this._parts.hostname.replace(replace, v);
+      }
 
-        //Using ridiculous property names for space reasons
-        return {
-            f: prefix ? prefix + '!' + name : name, //fullName
-            n: name,
-            pr: prefix,
-            p: plugin
-        };
-    };
-
-    function makeConfig(name) {
-        return function () {
-            return (config && config.config && config.config[name]) || {};
-        };
+      this.build(!build);
+      return this;
+    }
+  };
+  p.directory = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
     }
 
-    handlers = {
-        require: function (name) {
-            return makeRequire(name);
-        },
-        exports: function (name) {
-            var e = defined[name];
-            if (typeof e !== 'undefined') {
-                return e;
-            } else {
-                return (defined[name] = {});
-            }
-        },
-        module: function (name) {
-            return {
-                id: name,
-                uri: '',
-                exports: defined[name],
-                config: makeConfig(name)
-            };
-        }
-    };
+    if (v === undefined || v === true) {
+      if (!this._parts.path && !this._parts.hostname) {
+        return '';
+      }
 
-    main = function (name, deps, callback, relName) {
-        var cjsModule, depName, ret, map, i,
-            args = [],
-            callbackType = typeof callback,
-            usingExports;
+      if (this._parts.path === '/') {
+        return '/';
+      }
 
-        //Use name if no relName
-        relName = relName || name;
+      var end = this._parts.path.length - this.filename().length - 1;
+      var res = this._parts.path.substring(0, end) || (this._parts.hostname ? '/' : '');
 
-        //Call the callback to define the module, if necessary.
-        if (callbackType === 'undefined' || callbackType === 'function') {
-            //Pull out the defined dependencies and pass the ordered
-            //values to the callback.
-            //Default to [require, exports, module] if no deps
-            deps = !deps.length && callback.length ? ['require', 'exports', 'module'] : deps;
-            for (i = 0; i < deps.length; i += 1) {
-                map = makeMap(deps[i], relName);
-                depName = map.f;
+      return v ? URI.decodePath(res) : res;
 
-                //Fast path CommonJS standard dependencies.
-                if (depName === "require") {
-                    args[i] = handlers.require(name);
-                } else if (depName === "exports") {
-                    //CommonJS module spec 1.1
-                    args[i] = handlers.exports(name);
-                    usingExports = true;
-                } else if (depName === "module") {
-                    //CommonJS module spec 1.1
-                    cjsModule = args[i] = handlers.module(name);
-                } else if (hasProp(defined, depName) ||
-                           hasProp(waiting, depName) ||
-                           hasProp(defining, depName)) {
-                    args[i] = callDep(depName);
-                } else if (map.p) {
-                    map.p.load(map.n, makeRequire(relName, true), makeLoad(depName), {});
-                    args[i] = defined[depName];
-                } else {
-                    throw new Error(name + ' missing ' + depName);
-                }
-            }
+    } else {
+      var e = this._parts.path.length - this.filename().length;
+      var directory = this._parts.path.substring(0, e);
+      var replace = new RegExp('^' + escapeRegEx(directory));
 
-            ret = callback ? callback.apply(defined[name], args) : undefined;
-
-            if (name) {
-                //If setting exports via "module" is in play,
-                //favor that over return value and exports. After that,
-                //favor a non-undefined return value over exports use.
-                if (cjsModule && cjsModule.exports !== undef &&
-                        cjsModule.exports !== defined[name]) {
-                    defined[name] = cjsModule.exports;
-                } else if (ret !== undef || !usingExports) {
-                    //Use the return value from the function.
-                    defined[name] = ret;
-                }
-            }
-        } else if (name) {
-            //May just be an object definition for the module. Only
-            //worry about defining if have a module name.
-            defined[name] = callback;
-        }
-    };
-
-    requirejs = require = req = function (deps, callback, relName, forceSync, alt) {
-        if (typeof deps === "string") {
-            if (handlers[deps]) {
-                //callback in this case is really relName
-                return handlers[deps](callback);
-            }
-            //Just return the module wanted. In this scenario, the
-            //deps arg is the module name, and second arg (if passed)
-            //is just the relName.
-            //Normalize module name, if it contains . or ..
-            return callDep(makeMap(deps, callback).f);
-        } else if (!deps.splice) {
-            //deps is a config object, not an array.
-            config = deps;
-            if (config.deps) {
-                req(config.deps, config.callback);
-            }
-            if (!callback) {
-                return;
-            }
-
-            if (callback.splice) {
-                //callback is an array, which means it is a dependency list.
-                //Adjust args if there are dependencies
-                deps = callback;
-                callback = relName;
-                relName = null;
-            } else {
-                deps = undef;
-            }
+      // fully qualifier directories begin with a slash
+      if (!this.is('relative')) {
+        if (!v) {
+          v = '/';
         }
 
-        //Support require(['a'])
-        callback = callback || function () {};
+        if (v.charAt(0) !== '/') {
+          v = '/' + v;
+        }
+      }
 
-        //If relName is a function, it is an errback handler,
-        //so remove it.
-        if (typeof relName === 'function') {
-            relName = forceSync;
-            forceSync = alt;
+      // directories always end with a slash
+      if (v && v.charAt(v.length - 1) !== '/') {
+        v += '/';
+      }
+
+      v = URI.recodePath(v);
+      this._parts.path = this._parts.path.replace(replace, v);
+      this.build(!build);
+      return this;
+    }
+  };
+  p.filename = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
+    }
+
+    if (v === undefined || v === true) {
+      if (!this._parts.path || this._parts.path === '/') {
+        return '';
+      }
+
+      var pos = this._parts.path.lastIndexOf('/');
+      var res = this._parts.path.substring(pos+1);
+
+      return v ? URI.decodePathSegment(res) : res;
+    } else {
+      var mutatedDirectory = false;
+
+      if (v.charAt(0) === '/') {
+        v = v.substring(1);
+      }
+
+      if (v.match(/\.?\//)) {
+        mutatedDirectory = true;
+      }
+
+      var replace = new RegExp(escapeRegEx(this.filename()) + '$');
+      v = URI.recodePath(v);
+      this._parts.path = this._parts.path.replace(replace, v);
+
+      if (mutatedDirectory) {
+        this.normalizePath(build);
+      } else {
+        this.build(!build);
+      }
+
+      return this;
+    }
+  };
+  p.suffix = function(v, build) {
+    if (this._parts.urn) {
+      return v === undefined ? '' : this;
+    }
+
+    if (v === undefined || v === true) {
+      if (!this._parts.path || this._parts.path === '/') {
+        return '';
+      }
+
+      var filename = this.filename();
+      var pos = filename.lastIndexOf('.');
+      var s, res;
+
+      if (pos === -1) {
+        return '';
+      }
+
+      // suffix may only contain alnum characters (yup, I made this up.)
+      s = filename.substring(pos+1);
+      res = (/^[a-z0-9%]+$/i).test(s) ? s : '';
+      return v ? URI.decodePathSegment(res) : res;
+    } else {
+      if (v.charAt(0) === '.') {
+        v = v.substring(1);
+      }
+
+      var suffix = this.suffix();
+      var replace;
+
+      if (!suffix) {
+        if (!v) {
+          return this;
         }
 
-        //Simulate async callback;
-        if (forceSync) {
-            main(undef, deps, callback, relName);
+        this._parts.path += '.' + URI.recodePath(v);
+      } else if (!v) {
+        replace = new RegExp(escapeRegEx('.' + suffix) + '$');
+      } else {
+        replace = new RegExp(escapeRegEx(suffix) + '$');
+      }
+
+      if (replace) {
+        v = URI.recodePath(v);
+        this._parts.path = this._parts.path.replace(replace, v);
+      }
+
+      this.build(!build);
+      return this;
+    }
+  };
+  p.segment = function(segment, v, build) {
+    var separator = this._parts.urn ? ':' : '/';
+    var path = this.path();
+    var absolute = path.substring(0, 1) === '/';
+    var segments = path.split(separator);
+
+    if (segment !== undefined && typeof segment !== 'number') {
+      build = v;
+      v = segment;
+      segment = undefined;
+    }
+
+    if (segment !== undefined && typeof segment !== 'number') {
+      throw new Error('Bad segment "' + segment + '", must be 0-based integer');
+    }
+
+    if (absolute) {
+      segments.shift();
+    }
+
+    if (segment < 0) {
+      // allow negative indexes to address from the end
+      segment = Math.max(segments.length + segment, 0);
+    }
+
+    if (v === undefined) {
+      /*jshint laxbreak: true */
+      return segment === undefined
+        ? segments
+        : segments[segment];
+      /*jshint laxbreak: false */
+    } else if (segment === null || segments[segment] === undefined) {
+      if (isArray(v)) {
+        segments = [];
+        // collapse empty elements within array
+        for (var i=0, l=v.length; i < l; i++) {
+          if (!v[i].length && (!segments.length || !segments[segments.length -1].length)) {
+            continue;
+          }
+
+          if (segments.length && !segments[segments.length -1].length) {
+            segments.pop();
+          }
+
+          segments.push(v[i]);
+        }
+      } else if (v || (typeof v === 'string')) {
+        if (segments[segments.length -1] === '') {
+          // empty trailing elements have to be overwritten
+          // to prevent results such as /foo//bar
+          segments[segments.length -1] = v;
         } else {
-            //Using a non-zero value because of concern for what old browsers
-            //do, and latest browsers "upgrade" to 4 if lower value is used:
-            //http://www.whatwg.org/specs/web-apps/current-work/multipage/timers.html#dom-windowtimers-settimeout:
-            //If want a value immediately, use require('id') instead -- something
-            //that works in almond on the global level, but not guaranteed and
-            //unlikely to work in other AMD implementations.
-            setTimeout(function () {
-                main(undef, deps, callback, relName);
-            }, 4);
+          segments.push(v);
+        }
+      }
+    } else {
+      if (v || (typeof v === 'string' && v.length)) {
+        segments[segment] = v;
+      } else {
+        segments.splice(segment, 1);
+      }
+    }
+
+    if (absolute) {
+      segments.unshift('');
+    }
+
+    return this.path(segments.join(separator), build);
+  };
+  p.segmentCoded = function(segment, v, build) {
+    var segments, i, l;
+
+    if (typeof segment !== 'number') {
+      build = v;
+      v = segment;
+      segment = undefined;
+    }
+
+    if (v === undefined) {
+      segments = this.segment(segment, v, build);
+      if (!isArray(segments)) {
+        segments = segments !== undefined ? URI.decode(segments) : undefined;
+      } else {
+        for (i = 0, l = segments.length; i < l; i++) {
+          segments[i] = URI.decode(segments[i]);
+        }
+      }
+
+      return segments;
+    }
+
+    if (!isArray(v)) {
+      v = typeof v === 'string' ? URI.encode(v) : v;
+    } else {
+      for (i = 0, l = v.length; i < l; i++) {
+        v[i] = URI.decode(v[i]);
+      }
+    }
+
+    return this.segment(segment, v, build);
+  };
+
+  // mutating query string
+  var q = p.query;
+  p.query = function(v, build) {
+    if (v === true) {
+      return URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
+    } else if (typeof v === 'function') {
+      var data = URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
+      var result = v.call(this, data);
+      this._parts.query = URI.buildQuery(result || data, this._parts.duplicateQueryParameters, this._parts.escapeQuerySpace);
+      this.build(!build);
+      return this;
+    } else if (v !== undefined && typeof v !== 'string') {
+      this._parts.query = URI.buildQuery(v, this._parts.duplicateQueryParameters, this._parts.escapeQuerySpace);
+      this.build(!build);
+      return this;
+    } else {
+      return q.call(this, v, build);
+    }
+  };
+  p.setQuery = function(name, value, build) {
+    var data = URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
+
+    if (typeof name === 'object') {
+      for (var key in name) {
+        if (hasOwn.call(name, key)) {
+          data[key] = name[key];
+        }
+      }
+    } else if (typeof name === 'string') {
+      data[name] = value !== undefined ? value : null;
+    } else {
+      throw new TypeError('URI.addQuery() accepts an object, string as the name parameter');
+    }
+
+    this._parts.query = URI.buildQuery(data, this._parts.duplicateQueryParameters, this._parts.escapeQuerySpace);
+    if (typeof name !== 'string') {
+      build = value;
+    }
+
+    this.build(!build);
+    return this;
+  };
+  p.addQuery = function(name, value, build) {
+    var data = URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
+    URI.addQuery(data, name, value === undefined ? null : value);
+    this._parts.query = URI.buildQuery(data, this._parts.duplicateQueryParameters, this._parts.escapeQuerySpace);
+    if (typeof name !== 'string') {
+      build = value;
+    }
+
+    this.build(!build);
+    return this;
+  };
+  p.removeQuery = function(name, value, build) {
+    var data = URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
+    URI.removeQuery(data, name, value);
+    this._parts.query = URI.buildQuery(data, this._parts.duplicateQueryParameters, this._parts.escapeQuerySpace);
+    if (typeof name !== 'string') {
+      build = value;
+    }
+
+    this.build(!build);
+    return this;
+  };
+  p.hasQuery = function(name, value, withinArray) {
+    var data = URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
+    return URI.hasQuery(data, name, value, withinArray);
+  };
+  p.setSearch = p.setQuery;
+  p.addSearch = p.addQuery;
+  p.removeSearch = p.removeQuery;
+  p.hasSearch = p.hasQuery;
+
+  // sanitizing URLs
+  p.normalize = function() {
+    if (this._parts.urn) {
+      return this
+        .normalizeProtocol(false)
+        .normalizeQuery(false)
+        .normalizeFragment(false)
+        .build();
+    }
+
+    return this
+      .normalizeProtocol(false)
+      .normalizeHostname(false)
+      .normalizePort(false)
+      .normalizePath(false)
+      .normalizeQuery(false)
+      .normalizeFragment(false)
+      .build();
+  };
+  p.normalizeProtocol = function(build) {
+    if (typeof this._parts.protocol === 'string') {
+      this._parts.protocol = this._parts.protocol.toLowerCase();
+      this.build(!build);
+    }
+
+    return this;
+  };
+  p.normalizeHostname = function(build) {
+    if (this._parts.hostname) {
+      if (this.is('IDN') && punycode) {
+        this._parts.hostname = punycode.toASCII(this._parts.hostname);
+      } else if (this.is('IPv6') && IPv6) {
+        this._parts.hostname = IPv6.best(this._parts.hostname);
+      }
+
+      this._parts.hostname = this._parts.hostname.toLowerCase();
+      this.build(!build);
+    }
+
+    return this;
+  };
+  p.normalizePort = function(build) {
+    // remove port of it's the protocol's default
+    if (typeof this._parts.protocol === 'string' && this._parts.port === URI.defaultPorts[this._parts.protocol]) {
+      this._parts.port = null;
+      this.build(!build);
+    }
+
+    return this;
+  };
+  p.normalizePath = function(build) {
+    if (this._parts.urn) {
+      return this;
+    }
+
+    if (!this._parts.path || this._parts.path === '/') {
+      return this;
+    }
+
+    var _was_relative;
+    var _path = this._parts.path;
+    var _leadingParents = '';
+    var _parent, _pos;
+
+    // handle relative paths
+    if (_path.charAt(0) !== '/') {
+      _was_relative = true;
+      _path = '/' + _path;
+    }
+
+    // resolve simples
+    _path = _path
+      .replace(/(\/(\.\/)+)|(\/\.$)/g, '/')
+      .replace(/\/{2,}/g, '/');
+
+    // remember leading parents
+    if (_was_relative) {
+      _leadingParents = _path.substring(1).match(/^(\.\.\/)+/) || '';
+      if (_leadingParents) {
+        _leadingParents = _leadingParents[0];
+      }
+    }
+
+    // resolve parents
+    while (true) {
+      _parent = _path.indexOf('/..');
+      if (_parent === -1) {
+        // no more ../ to resolve
+        break;
+      } else if (_parent === 0) {
+        // top level cannot be relative, skip it
+        _path = _path.substring(3);
+        continue;
+      }
+
+      _pos = _path.substring(0, _parent).lastIndexOf('/');
+      if (_pos === -1) {
+        _pos = _parent;
+      }
+      _path = _path.substring(0, _pos) + _path.substring(_parent + 3);
+    }
+
+    // revert to relative
+    if (_was_relative && this.is('relative')) {
+      _path = _leadingParents + _path.substring(1);
+    }
+
+    _path = URI.recodePath(_path);
+    this._parts.path = _path;
+    this.build(!build);
+    return this;
+  };
+  p.normalizePathname = p.normalizePath;
+  p.normalizeQuery = function(build) {
+    if (typeof this._parts.query === 'string') {
+      if (!this._parts.query.length) {
+        this._parts.query = null;
+      } else {
+        this.query(URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace));
+      }
+
+      this.build(!build);
+    }
+
+    return this;
+  };
+  p.normalizeFragment = function(build) {
+    if (!this._parts.fragment) {
+      this._parts.fragment = null;
+      this.build(!build);
+    }
+
+    return this;
+  };
+  p.normalizeSearch = p.normalizeQuery;
+  p.normalizeHash = p.normalizeFragment;
+
+  p.iso8859 = function() {
+    // expect unicode input, iso8859 output
+    var e = URI.encode;
+    var d = URI.decode;
+
+    URI.encode = escape;
+    URI.decode = decodeURIComponent;
+    this.normalize();
+    URI.encode = e;
+    URI.decode = d;
+    return this;
+  };
+
+  p.unicode = function() {
+    // expect iso8859 input, unicode output
+    var e = URI.encode;
+    var d = URI.decode;
+
+    URI.encode = strictEncodeURIComponent;
+    URI.decode = unescape;
+    this.normalize();
+    URI.encode = e;
+    URI.decode = d;
+    return this;
+  };
+
+  p.readable = function() {
+    var uri = this.clone();
+    // removing username, password, because they shouldn't be displayed according to RFC 3986
+    uri.username('').password('').normalize();
+    var t = '';
+    if (uri._parts.protocol) {
+      t += uri._parts.protocol + '://';
+    }
+
+    if (uri._parts.hostname) {
+      if (uri.is('punycode') && punycode) {
+        t += punycode.toUnicode(uri._parts.hostname);
+        if (uri._parts.port) {
+          t += ':' + uri._parts.port;
+        }
+      } else {
+        t += uri.host();
+      }
+    }
+
+    if (uri._parts.hostname && uri._parts.path && uri._parts.path.charAt(0) !== '/') {
+      t += '/';
+    }
+
+    t += uri.path(true);
+    if (uri._parts.query) {
+      var q = '';
+      for (var i = 0, qp = uri._parts.query.split('&'), l = qp.length; i < l; i++) {
+        var kv = (qp[i] || '').split('=');
+        q += '&' + URI.decodeQuery(kv[0], this._parts.escapeQuerySpace)
+          .replace(/&/g, '%26');
+
+        if (kv[1] !== undefined) {
+          q += '=' + URI.decodeQuery(kv[1], this._parts.escapeQuerySpace)
+            .replace(/&/g, '%26');
+        }
+      }
+      t += '?' + q.substring(1);
+    }
+
+    t += URI.decodeQuery(uri.hash(), true);
+    return t;
+  };
+
+  // resolving relative and absolute URLs
+  p.absoluteTo = function(base) {
+    var resolved = this.clone();
+    var properties = ['protocol', 'username', 'password', 'hostname', 'port'];
+    var basedir, i, p;
+
+    if (this._parts.urn) {
+      throw new Error('URNs do not have any generally defined hierarchical components');
+    }
+
+    if (!(base instanceof URI)) {
+      base = new URI(base);
+    }
+
+    if (!resolved._parts.protocol) {
+      resolved._parts.protocol = base._parts.protocol;
+    }
+
+    if (this._parts.hostname) {
+      return resolved;
+    }
+
+    for (i = 0; (p = properties[i]); i++) {
+      resolved._parts[p] = base._parts[p];
+    }
+
+    if (!resolved._parts.path) {
+      resolved._parts.path = base._parts.path;
+      if (!resolved._parts.query) {
+        resolved._parts.query = base._parts.query;
+      }
+    } else if (resolved._parts.path.substring(-2) === '..') {
+      resolved._parts.path += '/';
+    }
+
+    if (resolved.path().charAt(0) !== '/') {
+      basedir = base.directory();
+      resolved._parts.path = (basedir ? (basedir + '/') : '') + resolved._parts.path;
+      resolved.normalizePath();
+    }
+
+    resolved.build();
+    return resolved;
+  };
+  p.relativeTo = function(base) {
+    var relative = this.clone().normalize();
+    var relativeParts, baseParts, common, relativePath, basePath;
+
+    if (relative._parts.urn) {
+      throw new Error('URNs do not have any generally defined hierarchical components');
+    }
+
+    base = new URI(base).normalize();
+    relativeParts = relative._parts;
+    baseParts = base._parts;
+    relativePath = relative.path();
+    basePath = base.path();
+
+    if (relativePath.charAt(0) !== '/') {
+      throw new Error('URI is already relative');
+    }
+
+    if (basePath.charAt(0) !== '/') {
+      throw new Error('Cannot calculate a URI relative to another relative URI');
+    }
+
+    if (relativeParts.protocol === baseParts.protocol) {
+      relativeParts.protocol = null;
+    }
+
+    if (relativeParts.username !== baseParts.username || relativeParts.password !== baseParts.password) {
+      return relative.build();
+    }
+
+    if (relativeParts.protocol !== null || relativeParts.username !== null || relativeParts.password !== null) {
+      return relative.build();
+    }
+
+    if (relativeParts.hostname === baseParts.hostname && relativeParts.port === baseParts.port) {
+      relativeParts.hostname = null;
+      relativeParts.port = null;
+    } else {
+      return relative.build();
+    }
+
+    if (relativePath === basePath) {
+      relativeParts.path = '';
+      return relative.build();
+    }
+
+    // determine common sub path
+    common = URI.commonPath(relative.path(), base.path());
+
+    // If the paths have nothing in common, return a relative URL with the absolute path.
+    if (!common) {
+      return relative.build();
+    }
+
+    var parents = baseParts.path
+      .substring(common.length)
+      .replace(/[^\/]*$/, '')
+      .replace(/.*?\//g, '../');
+
+    relativeParts.path = parents + relativeParts.path.substring(common.length);
+
+    return relative.build();
+  };
+
+  // comparing URIs
+  p.equals = function(uri) {
+    var one = this.clone();
+    var two = new URI(uri);
+    var one_map = {};
+    var two_map = {};
+    var checked = {};
+    var one_query, two_query, key;
+
+    one.normalize();
+    two.normalize();
+
+    // exact match
+    if (one.toString() === two.toString()) {
+      return true;
+    }
+
+    // extract query string
+    one_query = one.query();
+    two_query = two.query();
+    one.query('');
+    two.query('');
+
+    // definitely not equal if not even non-query parts match
+    if (one.toString() !== two.toString()) {
+      return false;
+    }
+
+    // query parameters have the same length, even if they're permuted
+    if (one_query.length !== two_query.length) {
+      return false;
+    }
+
+    one_map = URI.parseQuery(one_query, this._parts.escapeQuerySpace);
+    two_map = URI.parseQuery(two_query, this._parts.escapeQuerySpace);
+
+    for (key in one_map) {
+      if (hasOwn.call(one_map, key)) {
+        if (!isArray(one_map[key])) {
+          if (one_map[key] !== two_map[key]) {
+            return false;
+          }
+        } else if (!arraysEqual(one_map[key], two_map[key])) {
+          return false;
         }
 
-        return req;
-    };
+        checked[key] = true;
+      }
+    }
 
-    /**
-     * Just drops the config on the floor, but returns req in case
-     * the config return value is used.
-     */
-    req.config = function (cfg) {
-        return req(cfg);
-    };
-
-    /**
-     * Expose module registry for debugging and tooling
-     */
-    requirejs._defined = defined;
-
-    define = function (name, deps, callback) {
-
-        //This module may not have dependencies
-        if (!deps.splice) {
-            //deps is not an array, so probably means
-            //an object literal or factory function for
-            //the value. Adjust args.
-            callback = deps;
-            deps = [];
+    for (key in two_map) {
+      if (hasOwn.call(two_map, key)) {
+        if (!checked[key]) {
+          // two contains a parameter not present in one
+          return false;
         }
-
-        if (!hasProp(defined, name) && !hasProp(waiting, name)) {
-            waiting[name] = [name, deps, callback];
-        }
-    };
-
-    define.amd = {
-        jQuery: true
-    };
-}());
-
-define("bower_components/almond/almond.js", function(){});
-
-/** @license MIT License (c) copyright 2011-2013 original author or authors */
-
-/**
- * A lightweight CommonJS Promises/A and when() implementation
- * when is part of the cujo.js family of libraries (http://cujojs.com/)
- *
- * Licensed under the MIT License at:
- * http://www.opensource.org/licenses/mit-license.php
- *
- * @author Brian Cavalier
- * @author John Hann
- * @version 2.7.1
- */
-(function(define) { 
-define('when',['require'],function (require) {
-
-	// Public API
-
-	when.promise   = promise;    // Create a pending promise
-	when.resolve   = resolve;    // Create a resolved promise
-	when.reject    = reject;     // Create a rejected promise
-	when.defer     = defer;      // Create a {promise, resolver} pair
-
-	when.join      = join;       // Join 2 or more promises
-
-	when.all       = all;        // Resolve a list of promises
-	when.map       = map;        // Array.map() for promises
-	when.reduce    = reduce;     // Array.reduce() for promises
-	when.settle    = settle;     // Settle a list of promises
-
-	when.any       = any;        // One-winner race
-	when.some      = some;       // Multi-winner race
-
-	when.isPromise = isPromiseLike;  // DEPRECATED: use isPromiseLike
-	when.isPromiseLike = isPromiseLike; // Is something promise-like, aka thenable
-
-	/**
-	 * Register an observer for a promise or immediate value.
-	 *
-	 * @param {*} promiseOrValue
-	 * @param {function?} [onFulfilled] callback to be called when promiseOrValue is
-	 *   successfully fulfilled.  If promiseOrValue is an immediate value, callback
-	 *   will be invoked immediately.
-	 * @param {function?} [onRejected] callback to be called when promiseOrValue is
-	 *   rejected.
-	 * @param {function?} [onProgress] callback to be called when progress updates
-	 *   are issued for promiseOrValue.
-	 * @returns {Promise} a new {@link Promise} that will complete with the return
-	 *   value of callback or errback or the completion value of promiseOrValue if
-	 *   callback and/or errback is not supplied.
-	 */
-	function when(promiseOrValue, onFulfilled, onRejected, onProgress) {
-		// Get a trusted promise for the input promiseOrValue, and then
-		// register promise handlers
-		return cast(promiseOrValue).then(onFulfilled, onRejected, onProgress);
-	}
-
-	/**
-	 * Creates a new promise whose fate is determined by resolver.
-	 * @param {function} resolver function(resolve, reject, notify)
-	 * @returns {Promise} promise whose fate is determine by resolver
-	 */
-	function promise(resolver) {
-		return new Promise(resolver,
-			monitorApi.PromiseStatus && monitorApi.PromiseStatus());
-	}
-
-	/**
-	 * Trusted Promise constructor.  A Promise created from this constructor is
-	 * a trusted when.js promise.  Any other duck-typed promise is considered
-	 * untrusted.
-	 * @constructor
-	 * @returns {Promise} promise whose fate is determine by resolver
-	 * @name Promise
-	 */
-	function Promise(resolver, status) {
-		var self, value, consumers = [];
-
-		self = this;
-		this._status = status;
-		this.inspect = inspect;
-		this._when = _when;
-
-		// Call the provider resolver to seal the promise's fate
-		try {
-			resolver(promiseResolve, promiseReject, promiseNotify);
-		} catch(e) {
-			promiseReject(e);
-		}
-
-		/**
-		 * Returns a snapshot of this promise's current status at the instant of call
-		 * @returns {{state:String}}
-		 */
-		function inspect() {
-			return value ? value.inspect() : toPendingState();
-		}
-
-		/**
-		 * Private message delivery. Queues and delivers messages to
-		 * the promise's ultimate fulfillment value or rejection reason.
-		 * @private
-		 */
-		function _when(resolve, notify, onFulfilled, onRejected, onProgress) {
-			consumers ? consumers.push(deliver) : enqueue(function() { deliver(value); });
-
-			function deliver(p) {
-				p._when(resolve, notify, onFulfilled, onRejected, onProgress);
-			}
-		}
-
-		/**
-		 * Transition from pre-resolution state to post-resolution state, notifying
-		 * all listeners of the ultimate fulfillment or rejection
-		 * @param {*} val resolution value
-		 */
-		function promiseResolve(val) {
-			if(!consumers) {
-				return;
-			}
-
-			var queue = consumers;
-			consumers = undef;
-
-			enqueue(function () {
-				value = coerce(self, val);
-				if(status) {
-					updateStatus(value, status);
-				}
-				runHandlers(queue, value);
-			});
-		}
-
-		/**
-		 * Reject this promise with the supplied reason, which will be used verbatim.
-		 * @param {*} reason reason for the rejection
-		 */
-		function promiseReject(reason) {
-			promiseResolve(new RejectedPromise(reason));
-		}
-
-		/**
-		 * Issue a progress event, notifying all progress listeners
-		 * @param {*} update progress event payload to pass to all listeners
-		 */
-		function promiseNotify(update) {
-			if(consumers) {
-				var queue = consumers;
-				enqueue(function () {
-					runHandlers(queue, new ProgressingPromise(update));
-				});
-			}
-		}
-	}
-
-	promisePrototype = Promise.prototype;
-
-	/**
-	 * Register handlers for this promise.
-	 * @param [onFulfilled] {Function} fulfillment handler
-	 * @param [onRejected] {Function} rejection handler
-	 * @param [onProgress] {Function} progress handler
-	 * @return {Promise} new Promise
-	 */
-	promisePrototype.then = function(onFulfilled, onRejected, onProgress) {
-		var self = this;
-
-		return new Promise(function(resolve, reject, notify) {
-			self._when(resolve, notify, onFulfilled, onRejected, onProgress);
-		}, this._status && this._status.observed());
-	};
-
-	/**
-	 * Register a rejection handler.  Shortcut for .then(undefined, onRejected)
-	 * @param {function?} onRejected
-	 * @return {Promise}
-	 */
-	promisePrototype['catch'] = promisePrototype.otherwise = function(onRejected) {
-		return this.then(undef, onRejected);
-	};
-
-	/**
-	 * Ensures that onFulfilledOrRejected will be called regardless of whether
-	 * this promise is fulfilled or rejected.  onFulfilledOrRejected WILL NOT
-	 * receive the promises' value or reason.  Any returned value will be disregarded.
-	 * onFulfilledOrRejected may throw or return a rejected promise to signal
-	 * an additional error.
-	 * @param {function} onFulfilledOrRejected handler to be called regardless of
-	 *  fulfillment or rejection
-	 * @returns {Promise}
-	 */
-	promisePrototype['finally'] = promisePrototype.ensure = function(onFulfilledOrRejected) {
-		return typeof onFulfilledOrRejected === 'function'
-			? this.then(injectHandler, injectHandler)['yield'](this)
-			: this;
-
-		function injectHandler() {
-			return resolve(onFulfilledOrRejected());
-		}
-	};
-
-	/**
-	 * Terminate a promise chain by handling the ultimate fulfillment value or
-	 * rejection reason, and assuming responsibility for all errors.  if an
-	 * error propagates out of handleResult or handleFatalError, it will be
-	 * rethrown to the host, resulting in a loud stack track on most platforms
-	 * and a crash on some.
-	 * @param {function?} handleResult
-	 * @param {function?} handleError
-	 * @returns {undefined}
-	 */
-	promisePrototype.done = function(handleResult, handleError) {
-		this.then(handleResult, handleError)['catch'](crash);
-	};
-
-	/**
-	 * Shortcut for .then(function() { return value; })
-	 * @param  {*} value
-	 * @return {Promise} a promise that:
-	 *  - is fulfilled if value is not a promise, or
-	 *  - if value is a promise, will fulfill with its value, or reject
-	 *    with its reason.
-	 */
-	promisePrototype['yield'] = function(value) {
-		return this.then(function() {
-			return value;
-		});
-	};
-
-	/**
-	 * Runs a side effect when this promise fulfills, without changing the
-	 * fulfillment value.
-	 * @param {function} onFulfilledSideEffect
-	 * @returns {Promise}
-	 */
-	promisePrototype.tap = function(onFulfilledSideEffect) {
-		return this.then(onFulfilledSideEffect)['yield'](this);
-	};
-
-	/**
-	 * Assumes that this promise will fulfill with an array, and arranges
-	 * for the onFulfilled to be called with the array as its argument list
-	 * i.e. onFulfilled.apply(undefined, array).
-	 * @param {function} onFulfilled function to receive spread arguments
-	 * @return {Promise}
-	 */
-	promisePrototype.spread = function(onFulfilled) {
-		return this.then(function(array) {
-			// array may contain promises, so resolve its contents.
-			return all(array, function(array) {
-				return onFulfilled.apply(undef, array);
-			});
-		});
-	};
-
-	/**
-	 * Shortcut for .then(onFulfilledOrRejected, onFulfilledOrRejected)
-	 * @deprecated
-	 */
-	promisePrototype.always = function(onFulfilledOrRejected, onProgress) {
-		return this.then(onFulfilledOrRejected, onFulfilledOrRejected, onProgress);
-	};
-
-	/**
-	 * Casts x to a trusted promise. If x is already a trusted promise, it is
-	 * returned, otherwise a new trusted Promise which follows x is returned.
-	 * @param {*} x
-	 * @returns {Promise}
-	 */
-	function cast(x) {
-		return x instanceof Promise ? x : resolve(x);
-	}
-
-	/**
-	 * Returns a resolved promise. The returned promise will be
-	 *  - fulfilled with promiseOrValue if it is a value, or
-	 *  - if promiseOrValue is a promise
-	 *    - fulfilled with promiseOrValue's value after it is fulfilled
-	 *    - rejected with promiseOrValue's reason after it is rejected
-	 * In contract to cast(x), this always creates a new Promise
-	 * @param  {*} value
-	 * @return {Promise}
-	 */
-	function resolve(value) {
-		return promise(function(resolve) {
-			resolve(value);
-		});
-	}
-
-	/**
-	 * Returns a rejected promise for the supplied promiseOrValue.  The returned
-	 * promise will be rejected with:
-	 * - promiseOrValue, if it is a value, or
-	 * - if promiseOrValue is a promise
-	 *   - promiseOrValue's value after it is fulfilled
-	 *   - promiseOrValue's reason after it is rejected
-	 * @param {*} promiseOrValue the rejected value of the returned {@link Promise}
-	 * @return {Promise} rejected {@link Promise}
-	 */
-	function reject(promiseOrValue) {
-		return when(promiseOrValue, function(e) {
-			return new RejectedPromise(e);
-		});
-	}
-
-	/**
-	 * Creates a {promise, resolver} pair, either or both of which
-	 * may be given out safely to consumers.
-	 * The resolver has resolve, reject, and progress.  The promise
-	 * has then plus extended promise API.
-	 *
-	 * @return {{
-	 * promise: Promise,
-	 * resolve: function:Promise,
-	 * reject: function:Promise,
-	 * notify: function:Promise
-	 * resolver: {
-	 *	resolve: function:Promise,
-	 *	reject: function:Promise,
-	 *	notify: function:Promise
-	 * }}}
-	 */
-	function defer() {
-		var deferred, pending, resolved;
-
-		// Optimize object shape
-		deferred = {
-			promise: undef, resolve: undef, reject: undef, notify: undef,
-			resolver: { resolve: undef, reject: undef, notify: undef }
-		};
-
-		deferred.promise = pending = promise(makeDeferred);
-
-		return deferred;
-
-		function makeDeferred(resolvePending, rejectPending, notifyPending) {
-			deferred.resolve = deferred.resolver.resolve = function(value) {
-				if(resolved) {
-					return resolve(value);
-				}
-				resolved = true;
-				resolvePending(value);
-				return pending;
-			};
-
-			deferred.reject  = deferred.resolver.reject  = function(reason) {
-				if(resolved) {
-					return resolve(new RejectedPromise(reason));
-				}
-				resolved = true;
-				rejectPending(reason);
-				return pending;
-			};
-
-			deferred.notify  = deferred.resolver.notify  = function(update) {
-				notifyPending(update);
-				return update;
-			};
-		}
-	}
-
-	/**
-	 * Run a queue of functions as quickly as possible, passing
-	 * value to each.
-	 */
-	function runHandlers(queue, value) {
-		for (var i = 0; i < queue.length; i++) {
-			queue[i](value);
-		}
-	}
-
-	/**
-	 * Coerces x to a trusted Promise
-	 * @param {*} x thing to coerce
-	 * @returns {*} Guaranteed to return a trusted Promise.  If x
-	 *   is trusted, returns x, otherwise, returns a new, trusted, already-resolved
-	 *   Promise whose resolution value is:
-	 *   * the resolution value of x if it's a foreign promise, or
-	 *   * x if it's a value
-	 */
-	function coerce(self, x) {
-		if (x === self) {
-			return new RejectedPromise(new TypeError());
-		}
-
-		if (x instanceof Promise) {
-			return x;
-		}
-
-		try {
-			var untrustedThen = x === Object(x) && x.then;
-
-			return typeof untrustedThen === 'function'
-				? assimilate(untrustedThen, x)
-				: new FulfilledPromise(x);
-		} catch(e) {
-			return new RejectedPromise(e);
-		}
-	}
-
-	/**
-	 * Safely assimilates a foreign thenable by wrapping it in a trusted promise
-	 * @param {function} untrustedThen x's then() method
-	 * @param {object|function} x thenable
-	 * @returns {Promise}
-	 */
-	function assimilate(untrustedThen, x) {
-		return promise(function (resolve, reject) {
-			fcall(untrustedThen, x, resolve, reject);
-		});
-	}
-
-	makePromisePrototype = Object.create ||
-		function(o) {
-			function PromisePrototype() {}
-			PromisePrototype.prototype = o;
-			return new PromisePrototype();
-		};
-
-	/**
-	 * Creates a fulfilled, local promise as a proxy for a value
-	 * NOTE: must never be exposed
-	 * @private
-	 * @param {*} value fulfillment value
-	 * @returns {Promise}
-	 */
-	function FulfilledPromise(value) {
-		this.value = value;
-	}
-
-	FulfilledPromise.prototype = makePromisePrototype(promisePrototype);
-
-	FulfilledPromise.prototype.inspect = function() {
-		return toFulfilledState(this.value);
-	};
-
-	FulfilledPromise.prototype._when = function(resolve, _, onFulfilled) {
-		try {
-			resolve(typeof onFulfilled === 'function' ? onFulfilled(this.value) : this.value);
-		} catch(e) {
-			resolve(new RejectedPromise(e));
-		}
-	};
-
-	/**
-	 * Creates a rejected, local promise as a proxy for a value
-	 * NOTE: must never be exposed
-	 * @private
-	 * @param {*} reason rejection reason
-	 * @returns {Promise}
-	 */
-	function RejectedPromise(reason) {
-		this.value = reason;
-	}
-
-	RejectedPromise.prototype = makePromisePrototype(promisePrototype);
-
-	RejectedPromise.prototype.inspect = function() {
-		return toRejectedState(this.value);
-	};
-
-	RejectedPromise.prototype._when = function(resolve, _, __, onRejected) {
-		try {
-			resolve(typeof onRejected === 'function' ? onRejected(this.value) : this);
-		} catch(e) {
-			resolve(new RejectedPromise(e));
-		}
-	};
-
-	/**
-	 * Create a progress promise with the supplied update.
-	 * @private
-	 * @param {*} value progress update value
-	 * @return {Promise} progress promise
-	 */
-	function ProgressingPromise(value) {
-		this.value = value;
-	}
-
-	ProgressingPromise.prototype = makePromisePrototype(promisePrototype);
-
-	ProgressingPromise.prototype._when = function(_, notify, f, r, u) {
-		try {
-			notify(typeof u === 'function' ? u(this.value) : this.value);
-		} catch(e) {
-			notify(e);
-		}
-	};
-
-	/**
-	 * Update a PromiseStatus monitor object with the outcome
-	 * of the supplied value promise.
-	 * @param {Promise} value
-	 * @param {PromiseStatus} status
-	 */
-	function updateStatus(value, status) {
-		value.then(statusFulfilled, statusRejected);
-
-		function statusFulfilled() { status.fulfilled(); }
-		function statusRejected(r) { status.rejected(r); }
-	}
-
-	/**
-	 * Determines if x is promise-like, i.e. a thenable object
-	 * NOTE: Will return true for *any thenable object*, and isn't truly
-	 * safe, since it may attempt to access the `then` property of x (i.e.
-	 *  clever/malicious getters may do weird things)
-	 * @param {*} x anything
-	 * @returns {boolean} true if x is promise-like
-	 */
-	function isPromiseLike(x) {
-		return x && typeof x.then === 'function';
-	}
-
-	/**
-	 * Initiates a competitive race, returning a promise that will resolve when
-	 * howMany of the supplied promisesOrValues have resolved, or will reject when
-	 * it becomes impossible for howMany to resolve, for example, when
-	 * (promisesOrValues.length - howMany) + 1 input promises reject.
-	 *
-	 * @param {Array} promisesOrValues array of anything, may contain a mix
-	 *      of promises and values
-	 * @param howMany {number} number of promisesOrValues to resolve
-	 * @param {function?} [onFulfilled] DEPRECATED, use returnedPromise.then()
-	 * @param {function?} [onRejected] DEPRECATED, use returnedPromise.then()
-	 * @param {function?} [onProgress] DEPRECATED, use returnedPromise.then()
-	 * @returns {Promise} promise that will resolve to an array of howMany values that
-	 *  resolved first, or will reject with an array of
-	 *  (promisesOrValues.length - howMany) + 1 rejection reasons.
-	 */
-	function some(promisesOrValues, howMany, onFulfilled, onRejected, onProgress) {
-
-		return when(promisesOrValues, function(promisesOrValues) {
-
-			return promise(resolveSome).then(onFulfilled, onRejected, onProgress);
-
-			function resolveSome(resolve, reject, notify) {
-				var toResolve, toReject, values, reasons, fulfillOne, rejectOne, len, i;
-
-				len = promisesOrValues.length >>> 0;
-
-				toResolve = Math.max(0, Math.min(howMany, len));
-				values = [];
-
-				toReject = (len - toResolve) + 1;
-				reasons = [];
-
-				// No items in the input, resolve immediately
-				if (!toResolve) {
-					resolve(values);
-
-				} else {
-					rejectOne = function(reason) {
-						reasons.push(reason);
-						if(!--toReject) {
-							fulfillOne = rejectOne = identity;
-							reject(reasons);
-						}
-					};
-
-					fulfillOne = function(val) {
-						// This orders the values based on promise resolution order
-						values.push(val);
-						if (!--toResolve) {
-							fulfillOne = rejectOne = identity;
-							resolve(values);
-						}
-					};
-
-					for(i = 0; i < len; ++i) {
-						if(i in promisesOrValues) {
-							when(promisesOrValues[i], fulfiller, rejecter, notify);
-						}
-					}
-				}
-
-				function rejecter(reason) {
-					rejectOne(reason);
-				}
-
-				function fulfiller(val) {
-					fulfillOne(val);
-				}
-			}
-		});
-	}
-
-	/**
-	 * Initiates a competitive race, returning a promise that will resolve when
-	 * any one of the supplied promisesOrValues has resolved or will reject when
-	 * *all* promisesOrValues have rejected.
-	 *
-	 * @param {Array|Promise} promisesOrValues array of anything, may contain a mix
-	 *      of {@link Promise}s and values
-	 * @param {function?} [onFulfilled] DEPRECATED, use returnedPromise.then()
-	 * @param {function?} [onRejected] DEPRECATED, use returnedPromise.then()
-	 * @param {function?} [onProgress] DEPRECATED, use returnedPromise.then()
-	 * @returns {Promise} promise that will resolve to the value that resolved first, or
-	 * will reject with an array of all rejected inputs.
-	 */
-	function any(promisesOrValues, onFulfilled, onRejected, onProgress) {
-
-		function unwrapSingleResult(val) {
-			return onFulfilled ? onFulfilled(val[0]) : val[0];
-		}
-
-		return some(promisesOrValues, 1, unwrapSingleResult, onRejected, onProgress);
-	}
-
-	/**
-	 * Return a promise that will resolve only once all the supplied promisesOrValues
-	 * have resolved. The resolution value of the returned promise will be an array
-	 * containing the resolution values of each of the promisesOrValues.
-	 * @memberOf when
-	 *
-	 * @param {Array|Promise} promisesOrValues array of anything, may contain a mix
-	 *      of {@link Promise}s and values
-	 * @param {function?} [onFulfilled] DEPRECATED, use returnedPromise.then()
-	 * @param {function?} [onRejected] DEPRECATED, use returnedPromise.then()
-	 * @param {function?} [onProgress] DEPRECATED, use returnedPromise.then()
-	 * @returns {Promise}
-	 */
-	function all(promisesOrValues, onFulfilled, onRejected, onProgress) {
-		return _map(promisesOrValues, identity).then(onFulfilled, onRejected, onProgress);
-	}
-
-	/**
-	 * Joins multiple promises into a single returned promise.
-	 * @return {Promise} a promise that will fulfill when *all* the input promises
-	 * have fulfilled, or will reject when *any one* of the input promises rejects.
-	 */
-	function join(/* ...promises */) {
-		return _map(arguments, identity);
-	}
-
-	/**
-	 * Settles all input promises such that they are guaranteed not to
-	 * be pending once the returned promise fulfills. The returned promise
-	 * will always fulfill, except in the case where `array` is a promise
-	 * that rejects.
-	 * @param {Array|Promise} array or promise for array of promises to settle
-	 * @returns {Promise} promise that always fulfills with an array of
-	 *  outcome snapshots for each input promise.
-	 */
-	function settle(array) {
-		return _map(array, toFulfilledState, toRejectedState);
-	}
-
-	/**
-	 * Promise-aware array map function, similar to `Array.prototype.map()`,
-	 * but input array may contain promises or values.
-	 * @param {Array|Promise} array array of anything, may contain promises and values
-	 * @param {function} mapFunc map function which may return a promise or value
-	 * @returns {Promise} promise that will fulfill with an array of mapped values
-	 *  or reject if any input promise rejects.
-	 */
-	function map(array, mapFunc) {
-		return _map(array, mapFunc);
-	}
-
-	/**
-	 * Internal map that allows a fallback to handle rejections
-	 * @param {Array|Promise} array array of anything, may contain promises and values
-	 * @param {function} mapFunc map function which may return a promise or value
-	 * @param {function?} fallback function to handle rejected promises
-	 * @returns {Promise} promise that will fulfill with an array of mapped values
-	 *  or reject if any input promise rejects.
-	 */
-	function _map(array, mapFunc, fallback) {
-		return when(array, function(array) {
-
-			return new Promise(resolveMap);
-
-			function resolveMap(resolve, reject, notify) {
-				var results, len, toResolve, i;
-
-				// Since we know the resulting length, we can preallocate the results
-				// array to avoid array expansions.
-				toResolve = len = array.length >>> 0;
-				results = [];
-
-				if(!toResolve) {
-					resolve(results);
-					return;
-				}
-
-				// Since mapFunc may be async, get all invocations of it into flight
-				for(i = 0; i < len; i++) {
-					if(i in array) {
-						resolveOne(array[i], i);
-					} else {
-						--toResolve;
-					}
-				}
-
-				function resolveOne(item, i) {
-					when(item, mapFunc, fallback).then(function(mapped) {
-						results[i] = mapped;
-
-						if(!--toResolve) {
-							resolve(results);
-						}
-					}, reject, notify);
-				}
-			}
-		});
-	}
-
-	/**
-	 * Traditional reduce function, similar to `Array.prototype.reduce()`, but
-	 * input may contain promises and/or values, and reduceFunc
-	 * may return either a value or a promise, *and* initialValue may
-	 * be a promise for the starting value.
-	 *
-	 * @param {Array|Promise} promise array or promise for an array of anything,
-	 *      may contain a mix of promises and values.
-	 * @param {function} reduceFunc reduce function reduce(currentValue, nextValue, index, total),
-	 *      where total is the total number of items being reduced, and will be the same
-	 *      in each call to reduceFunc.
-	 * @returns {Promise} that will resolve to the final reduced value
-	 */
-	function reduce(promise, reduceFunc /*, initialValue */) {
-		var args = fcall(slice, arguments, 1);
-
-		return when(promise, function(array) {
-			var total;
-
-			total = array.length;
-
-			// Wrap the supplied reduceFunc with one that handles promises and then
-			// delegates to the supplied.
-			args[0] = function (current, val, i) {
-				return when(current, function (c) {
-					return when(val, function (value) {
-						return reduceFunc(c, value, i, total);
-					});
-				});
-			};
-
-			return reduceArray.apply(array, args);
-		});
-	}
-
-	// Snapshot states
-
-	/**
-	 * Creates a fulfilled state snapshot
-	 * @private
-	 * @param {*} x any value
-	 * @returns {{state:'fulfilled',value:*}}
-	 */
-	function toFulfilledState(x) {
-		return { state: 'fulfilled', value: x };
-	}
-
-	/**
-	 * Creates a rejected state snapshot
-	 * @private
-	 * @param {*} x any reason
-	 * @returns {{state:'rejected',reason:*}}
-	 */
-	function toRejectedState(x) {
-		return { state: 'rejected', reason: x };
-	}
-
-	/**
-	 * Creates a pending state snapshot
-	 * @private
-	 * @returns {{state:'pending'}}
-	 */
-	function toPendingState() {
-		return { state: 'pending' };
-	}
-
-	//
-	// Internals, utilities, etc.
-	//
-
-	var promisePrototype, makePromisePrototype, reduceArray, slice, fcall, nextTick, handlerQueue,
-		funcProto, call, arrayProto, monitorApi,
-		capturedSetTimeout, cjsRequire, MutationObs, undef;
-
-	cjsRequire = require;
-
-	//
-	// Shared handler queue processing
-	//
-	// Credit to Twisol (https://github.com/Twisol) for suggesting
-	// this type of extensible queue + trampoline approach for
-	// next-tick conflation.
-
-	handlerQueue = [];
-
-	/**
-	 * Enqueue a task. If the queue is not currently scheduled to be
-	 * drained, schedule it.
-	 * @param {function} task
-	 */
-	function enqueue(task) {
-		if(handlerQueue.push(task) === 1) {
-			nextTick(drainQueue);
-		}
-	}
-
-	/**
-	 * Drain the handler queue entirely, being careful to allow the
-	 * queue to be extended while it is being processed, and to continue
-	 * processing until it is truly empty.
-	 */
-	function drainQueue() {
-		runHandlers(handlerQueue);
-		handlerQueue = [];
-	}
-
-	// Allow attaching the monitor to when() if env has no console
-	monitorApi = typeof console !== 'undefined' ? console : when;
-
-	// Sniff "best" async scheduling option
-	// Prefer process.nextTick or MutationObserver, then check for
-	// vertx and finally fall back to setTimeout
-	/*global process,document,setTimeout,MutationObserver,WebKitMutationObserver*/
-	if (typeof process === 'object' && process.nextTick) {
-		nextTick = process.nextTick;
-	} else if(MutationObs =
-		(typeof MutationObserver === 'function' && MutationObserver) ||
-			(typeof WebKitMutationObserver === 'function' && WebKitMutationObserver)) {
-		nextTick = (function(document, MutationObserver, drainQueue) {
-			var el = document.createElement('div');
-			new MutationObserver(drainQueue).observe(el, { attributes: true });
-
-			return function() {
-				el.setAttribute('x', 'x');
-			};
-		}(document, MutationObs, drainQueue));
-	} else {
-		try {
-			// vert.x 1.x || 2.x
-			nextTick = cjsRequire('vertx').runOnLoop || cjsRequire('vertx').runOnContext;
-		} catch(ignore) {
-			// capture setTimeout to avoid being caught by fake timers
-			// used in time based tests
-			capturedSetTimeout = setTimeout;
-			nextTick = function(t) { capturedSetTimeout(t, 0); };
-		}
-	}
-
-	//
-	// Capture/polyfill function and array utils
-	//
-
-	// Safe function calls
-	funcProto = Function.prototype;
-	call = funcProto.call;
-	fcall = funcProto.bind
-		? call.bind(call)
-		: function(f, context) {
-			return f.apply(context, slice.call(arguments, 2));
-		};
-
-	// Safe array ops
-	arrayProto = [];
-	slice = arrayProto.slice;
-
-	// ES5 reduce implementation if native not available
-	// See: http://es5.github.com/#x15.4.4.21 as there are many
-	// specifics and edge cases.  ES5 dictates that reduce.length === 1
-	// This implementation deviates from ES5 spec in the following ways:
-	// 1. It does not check if reduceFunc is a Callable
-	reduceArray = arrayProto.reduce ||
-		function(reduceFunc /*, initialValue */) {
-			/*jshint maxcomplexity: 7*/
-			var arr, args, reduced, len, i;
-
-			i = 0;
-			arr = Object(this);
-			len = arr.length >>> 0;
-			args = arguments;
-
-			// If no initialValue, use first item of array (we know length !== 0 here)
-			// and adjust i to start at second item
-			if(args.length <= 1) {
-				// Skip to the first real element in the array
-				for(;;) {
-					if(i in arr) {
-						reduced = arr[i++];
-						break;
-					}
-
-					// If we reached the end of the array without finding any real
-					// elements, it's a TypeError
-					if(++i >= len) {
-						throw new TypeError();
-					}
-				}
-			} else {
-				// If initialValue provided, use it
-				reduced = args[1];
-			}
-
-			// Do the actual reduce
-			for(;i < len; ++i) {
-				if(i in arr) {
-					reduced = reduceFunc(reduced, arr[i], i, arr);
-				}
-			}
-
-			return reduced;
-		};
-
-	function identity(x) {
-		return x;
-	}
-
-	function crash(fatalError) {
-		if(typeof monitorApi.reportUnhandled === 'function') {
-			monitorApi.reportUnhandled();
-		} else {
-			enqueue(function() {
-				throw fatalError;
-			});
-		}
-
-		throw fatalError;
-	}
-
-	return when;
-});
-})(typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); });
-
+      }
+    }
+
+    return true;
+  };
+
+  // state
+  p.duplicateQueryParameters = function(v) {
+    this._parts.duplicateQueryParameters = !!v;
+    return this;
+  };
+
+  p.escapeQuerySpace = function(v) {
+    this._parts.escapeQuerySpace = !!v;
+    return this;
+  };
+
+  return URI;
+}));
+
+},{"./IPv6":2,"./SecondLevelDomains":3,"./punycode":5}],5:[function(require,module,exports){
+(function (global){
 /*! http://mths.be/punycode v1.2.3 by @mathias */
 ;(function(root) {
 
@@ -1844,7 +2950,7 @@ define('when',['require'],function (require) {
 		typeof define.amd == 'object' &&
 		define.amd
 	) {
-		define('bower_components/URIjs/src/punycode',[],function() {
+		define(function() {
 			return punycode;
 		});
 	}	else if (freeExports && !freeExports.nodeType) {
@@ -1861,2807 +2967,73 @@ define('when',['require'],function (require) {
 
 }(this));
 
-/*!
- * URI.js - Mutating URLs
- * IPv6 Support
- *
- * Version: 1.12.1
- *
- * Author: Rodney Rehm
- * Web: http://medialize.github.com/URI.js/
- *
- * Licensed under
- *   MIT License http://www.opensource.org/licenses/mit-license
- *   GPL v3 http://opensource.org/licenses/GPL-3.0
- *
- */
-(function (root, factory) {
-    // https://github.com/umdjs/umd/blob/master/returnExports.js
-    if (typeof exports === 'object') {
-        // Node
-        module.exports = factory();
-    } else if (typeof define === 'function' && define.amd) {
-        // AMD. Register as an anonymous module.
-        define('bower_components/URIjs/src/IPv6',factory);
-    } else {
-        // Browser globals (root is window)
-        root.IPv6 = factory(root);
-    }
-}(this, function (root) {
+}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],6:[function(require,module,exports){
+// shim for using process in browser
 
+var process = module.exports = {};
 
-/*
-var _in = "fe80:0000:0000:0000:0204:61ff:fe9d:f156";
-var _out = IPv6.best(_in);
-var _expected = "fe80::204:61ff:fe9d:f156";
+process.nextTick = (function () {
+    var canSetImmediate = typeof window !== 'undefined'
+    && window.setImmediate;
+    var canPost = typeof window !== 'undefined'
+    && window.postMessage && window.addEventListener
+    ;
 
-console.log(_in, _out, _expected, _out === _expected);
-*/
-
-// save current IPv6 variable, if any
-var _IPv6 = root && root.IPv6;
-
-function best(address) {
-    // based on:
-    // Javascript to test an IPv6 address for proper format, and to
-    // present the "best text representation" according to IETF Draft RFC at
-    // http://tools.ietf.org/html/draft-ietf-6man-text-addr-representation-04
-    // 8 Feb 2010 Rich Brown, Dartware, LLC
-    // Please feel free to use this code as long as you provide a link to
-    // http://www.intermapper.com
-    // http://intermapper.com/support/tools/IPV6-Validator.aspx
-    // http://download.dartware.com/thirdparty/ipv6validator.js
-
-    var _address = address.toLowerCase();
-    var segments = _address.split(':');
-    var length = segments.length;
-    var total = 8;
-
-    // trim colons (:: or ::a:b:c… or …a:b:c::)
-    if (segments[0] === '' && segments[1] === '' && segments[2] === '') {
-        // must have been ::
-        // remove first two items
-        segments.shift();
-        segments.shift();
-    } else if (segments[0] === '' && segments[1] === '') {
-        // must have been ::xxxx
-        // remove the first item
-        segments.shift();
-    } else if (segments[length - 1] === '' && segments[length - 2] === '') {
-        // must have been xxxx::
-        segments.pop();
+    if (canSetImmediate) {
+        return function (f) { return window.setImmediate(f) };
     }
 
-    length = segments.length;
-
-    // adjust total segments for IPv4 trailer
-    if (segments[length - 1].indexOf('.') !== -1) {
-        // found a "." which means IPv4
-        total = 7;
-    }
-
-    // fill empty segments them with "0000"
-    var pos;
-    for (pos = 0; pos < length; pos++) {
-        if (segments[pos] === '') {
-            break;
-        }
-    }
-
-    if (pos < total) {
-        segments.splice(pos, 1, '0000');
-        while (segments.length < total) {
-            segments.splice(pos, 0, '0000');
-        }
-
-        length = segments.length;
-    }
-
-    // strip leading zeros
-    var _segments;
-    for (var i = 0; i < total; i++) {
-        _segments = segments[i].split("");
-        for (var j = 0; j < 3 ; j++) {
-            if (_segments[0] === '0' && _segments.length > 1) {
-                _segments.splice(0,1);
-            } else {
-                break;
-            }
-        }
-
-        segments[i] = _segments.join("");
-    }
-
-    // find longest sequence of zeroes and coalesce them into one segment
-    var best = -1;
-    var _best = 0;
-    var _current = 0;
-    var current = -1;
-    var inzeroes = false;
-    // i; already declared
-
-    for (i = 0; i < total; i++) {
-        if (inzeroes) {
-            if (segments[i] === '0') {
-                _current += 1;
-            } else {
-                inzeroes = false;
-                if (_current > _best) {
-                    best = current;
-                    _best = _current;
+    if (canPost) {
+        var queue = [];
+        window.addEventListener('message', function (ev) {
+            var source = ev.source;
+            if ((source === window || source === null) && ev.data === 'process-tick') {
+                ev.stopPropagation();
+                if (queue.length > 0) {
+                    var fn = queue.shift();
+                    fn();
                 }
             }
-        } else {
-            if (segments[i] == '0') {
-                inzeroes = true;
-                current = i;
-                _current = 1;
-            }
-        }
-    }
-
-    if (_current > _best) {
-        best = current;
-        _best = _current;
-    }
-
-    if (_best > 1) {
-        segments.splice(best, _best, "");
-    }
-
-    length = segments.length;
-
-    // assemble remaining segments
-    var result = '';
-    if (segments[0] === '')  {
-        beststr = ":";
-    }
-
-    for (i = 0; i < length; i++) {
-        result += segments[i];
-        if (i === length - 1) {
-            break;
-        }
-
-        result += ':';
-    }
-
-    if (segments[length - 1] === '') {
-        result += ":";
-    }
-
-    return result;
-};
-
-function noConflict(){
-    if (root.IPv6 === this) {
-        root.IPv6 = _IPv6;
-    }
-    
-    return this;
-};
-
-return {
-    best: best,
-    noConflict: noConflict
-};
-}));
-
-/*!
- * URI.js - Mutating URLs
- * Second Level Domain (SLD) Support
- *
- * Version: 1.12.1
- *
- * Author: Rodney Rehm
- * Web: http://medialize.github.com/URI.js/
- *
- * Licensed under
- *   MIT License http://www.opensource.org/licenses/mit-license
- *   GPL v3 http://opensource.org/licenses/GPL-3.0
- *
- */
-
-(function (root, factory) {
-    // https://github.com/umdjs/umd/blob/master/returnExports.js
-    if (typeof exports === 'object') {
-        // Node
-        module.exports = factory();
-    } else if (typeof define === 'function' && define.amd) {
-        // AMD. Register as an anonymous module.
-        define('bower_components/URIjs/src/SecondLevelDomains',factory);
-    } else {
-        // Browser globals (root is window)
-        root.SecondLevelDomains = factory(root);
-    }
-}(this, function (root) {
-
-
-// save current SecondLevelDomains variable, if any
-var _SecondLevelDomains = root && root.SecondLevelDomains;
-
-var hasOwn = Object.prototype.hasOwnProperty;
-var SLD = {
-    // list of known Second Level Domains
-    // converted list of SLDs from https://github.com/gavingmiller/second-level-domains
-    // ----
-    // publicsuffix.org is more current and actually used by a couple of browsers internally.
-    // downside is it also contains domains like "dyndns.org" - which is fine for the security
-    // issues browser have to deal with (SOP for cookies, etc) - but is way overboard for URI.js
-    // ----
-    list: {
-        "ac":"com|gov|mil|net|org",
-        "ae":"ac|co|gov|mil|name|net|org|pro|sch",
-        "af":"com|edu|gov|net|org",
-        "al":"com|edu|gov|mil|net|org",
-        "ao":"co|ed|gv|it|og|pb",
-        "ar":"com|edu|gob|gov|int|mil|net|org|tur",
-        "at":"ac|co|gv|or",
-        "au":"asn|com|csiro|edu|gov|id|net|org",
-        "ba":"co|com|edu|gov|mil|net|org|rs|unbi|unmo|unsa|untz|unze",
-        "bb":"biz|co|com|edu|gov|info|net|org|store|tv",
-        "bh":"biz|cc|com|edu|gov|info|net|org",
-        "bn":"com|edu|gov|net|org",
-        "bo":"com|edu|gob|gov|int|mil|net|org|tv",
-        "br":"adm|adv|agr|am|arq|art|ato|b|bio|blog|bmd|cim|cng|cnt|com|coop|ecn|edu|eng|esp|etc|eti|far|flog|fm|fnd|fot|fst|g12|ggf|gov|imb|ind|inf|jor|jus|lel|mat|med|mil|mus|net|nom|not|ntr|odo|org|ppg|pro|psc|psi|qsl|rec|slg|srv|tmp|trd|tur|tv|vet|vlog|wiki|zlg",
-        "bs":"com|edu|gov|net|org",
-        "bz":"du|et|om|ov|rg",
-        "ca":"ab|bc|mb|nb|nf|nl|ns|nt|nu|on|pe|qc|sk|yk",
-        "ck":"biz|co|edu|gen|gov|info|net|org",
-        "cn":"ac|ah|bj|com|cq|edu|fj|gd|gov|gs|gx|gz|ha|hb|he|hi|hl|hn|jl|js|jx|ln|mil|net|nm|nx|org|qh|sc|sd|sh|sn|sx|tj|tw|xj|xz|yn|zj",
-        "co":"com|edu|gov|mil|net|nom|org",
-        "cr":"ac|c|co|ed|fi|go|or|sa",
-        "cy":"ac|biz|com|ekloges|gov|ltd|name|net|org|parliament|press|pro|tm",
-        "do":"art|com|edu|gob|gov|mil|net|org|sld|web",
-        "dz":"art|asso|com|edu|gov|net|org|pol",
-        "ec":"com|edu|fin|gov|info|med|mil|net|org|pro",
-        "eg":"com|edu|eun|gov|mil|name|net|org|sci",
-        "er":"com|edu|gov|ind|mil|net|org|rochest|w",
-        "es":"com|edu|gob|nom|org",
-        "et":"biz|com|edu|gov|info|name|net|org",
-        "fj":"ac|biz|com|info|mil|name|net|org|pro",
-        "fk":"ac|co|gov|net|nom|org",
-        "fr":"asso|com|f|gouv|nom|prd|presse|tm",
-        "gg":"co|net|org",
-        "gh":"com|edu|gov|mil|org",
-        "gn":"ac|com|gov|net|org",
-        "gr":"com|edu|gov|mil|net|org",
-        "gt":"com|edu|gob|ind|mil|net|org",
-        "gu":"com|edu|gov|net|org",
-        "hk":"com|edu|gov|idv|net|org",
-        "id":"ac|co|go|mil|net|or|sch|web",
-        "il":"ac|co|gov|idf|k12|muni|net|org",
-        "in":"ac|co|edu|ernet|firm|gen|gov|i|ind|mil|net|nic|org|res",
-        "iq":"com|edu|gov|i|mil|net|org",
-        "ir":"ac|co|dnssec|gov|i|id|net|org|sch",
-        "it":"edu|gov",
-        "je":"co|net|org",
-        "jo":"com|edu|gov|mil|name|net|org|sch",
-        "jp":"ac|ad|co|ed|go|gr|lg|ne|or",
-        "ke":"ac|co|go|info|me|mobi|ne|or|sc",
-        "kh":"com|edu|gov|mil|net|org|per",
-        "ki":"biz|com|de|edu|gov|info|mob|net|org|tel",
-        "km":"asso|com|coop|edu|gouv|k|medecin|mil|nom|notaires|pharmaciens|presse|tm|veterinaire",
-        "kn":"edu|gov|net|org",
-        "kr":"ac|busan|chungbuk|chungnam|co|daegu|daejeon|es|gangwon|go|gwangju|gyeongbuk|gyeonggi|gyeongnam|hs|incheon|jeju|jeonbuk|jeonnam|k|kg|mil|ms|ne|or|pe|re|sc|seoul|ulsan",
-        "kw":"com|edu|gov|net|org",
-        "ky":"com|edu|gov|net|org",
-        "kz":"com|edu|gov|mil|net|org",
-        "lb":"com|edu|gov|net|org",
-        "lk":"assn|com|edu|gov|grp|hotel|int|ltd|net|ngo|org|sch|soc|web",
-        "lr":"com|edu|gov|net|org",
-        "lv":"asn|com|conf|edu|gov|id|mil|net|org",
-        "ly":"com|edu|gov|id|med|net|org|plc|sch",
-        "ma":"ac|co|gov|m|net|org|press",
-        "mc":"asso|tm",
-        "me":"ac|co|edu|gov|its|net|org|priv",
-        "mg":"com|edu|gov|mil|nom|org|prd|tm",
-        "mk":"com|edu|gov|inf|name|net|org|pro",
-        "ml":"com|edu|gov|net|org|presse",
-        "mn":"edu|gov|org",
-        "mo":"com|edu|gov|net|org",
-        "mt":"com|edu|gov|net|org",
-        "mv":"aero|biz|com|coop|edu|gov|info|int|mil|museum|name|net|org|pro",
-        "mw":"ac|co|com|coop|edu|gov|int|museum|net|org",
-        "mx":"com|edu|gob|net|org",
-        "my":"com|edu|gov|mil|name|net|org|sch",
-        "nf":"arts|com|firm|info|net|other|per|rec|store|web",
-        "ng":"biz|com|edu|gov|mil|mobi|name|net|org|sch",
-        "ni":"ac|co|com|edu|gob|mil|net|nom|org",
-        "np":"com|edu|gov|mil|net|org",
-        "nr":"biz|com|edu|gov|info|net|org",
-        "om":"ac|biz|co|com|edu|gov|med|mil|museum|net|org|pro|sch",
-        "pe":"com|edu|gob|mil|net|nom|org|sld",
-        "ph":"com|edu|gov|i|mil|net|ngo|org",
-        "pk":"biz|com|edu|fam|gob|gok|gon|gop|gos|gov|net|org|web",
-        "pl":"art|bialystok|biz|com|edu|gda|gdansk|gorzow|gov|info|katowice|krakow|lodz|lublin|mil|net|ngo|olsztyn|org|poznan|pwr|radom|slupsk|szczecin|torun|warszawa|waw|wroc|wroclaw|zgora",
-        "pr":"ac|biz|com|edu|est|gov|info|isla|name|net|org|pro|prof",
-        "ps":"com|edu|gov|net|org|plo|sec",
-        "pw":"belau|co|ed|go|ne|or",
-        "ro":"arts|com|firm|info|nom|nt|org|rec|store|tm|www",
-        "rs":"ac|co|edu|gov|in|org",
-        "sb":"com|edu|gov|net|org",
-        "sc":"com|edu|gov|net|org",
-        "sh":"co|com|edu|gov|net|nom|org",
-        "sl":"com|edu|gov|net|org",
-        "st":"co|com|consulado|edu|embaixada|gov|mil|net|org|principe|saotome|store",
-        "sv":"com|edu|gob|org|red",
-        "sz":"ac|co|org",
-        "tr":"av|bbs|bel|biz|com|dr|edu|gen|gov|info|k12|name|net|org|pol|tel|tsk|tv|web",
-        "tt":"aero|biz|cat|co|com|coop|edu|gov|info|int|jobs|mil|mobi|museum|name|net|org|pro|tel|travel",
-        "tw":"club|com|ebiz|edu|game|gov|idv|mil|net|org",
-        "mu":"ac|co|com|gov|net|or|org",
-        "mz":"ac|co|edu|gov|org",
-        "na":"co|com",
-        "nz":"ac|co|cri|geek|gen|govt|health|iwi|maori|mil|net|org|parliament|school",
-        "pa":"abo|ac|com|edu|gob|ing|med|net|nom|org|sld",
-        "pt":"com|edu|gov|int|net|nome|org|publ",
-        "py":"com|edu|gov|mil|net|org",
-        "qa":"com|edu|gov|mil|net|org",
-        "re":"asso|com|nom",
-        "ru":"ac|adygeya|altai|amur|arkhangelsk|astrakhan|bashkiria|belgorod|bir|bryansk|buryatia|cbg|chel|chelyabinsk|chita|chukotka|chuvashia|com|dagestan|e-burg|edu|gov|grozny|int|irkutsk|ivanovo|izhevsk|jar|joshkar-ola|kalmykia|kaluga|kamchatka|karelia|kazan|kchr|kemerovo|khabarovsk|khakassia|khv|kirov|koenig|komi|kostroma|kranoyarsk|kuban|kurgan|kursk|lipetsk|magadan|mari|mari-el|marine|mil|mordovia|mosreg|msk|murmansk|nalchik|net|nnov|nov|novosibirsk|nsk|omsk|orenburg|org|oryol|penza|perm|pp|pskov|ptz|rnd|ryazan|sakhalin|samara|saratov|simbirsk|smolensk|spb|stavropol|stv|surgut|tambov|tatarstan|tom|tomsk|tsaritsyn|tsk|tula|tuva|tver|tyumen|udm|udmurtia|ulan-ude|vladikavkaz|vladimir|vladivostok|volgograd|vologda|voronezh|vrn|vyatka|yakutia|yamal|yekaterinburg|yuzhno-sakhalinsk",
-        "rw":"ac|co|com|edu|gouv|gov|int|mil|net",
-        "sa":"com|edu|gov|med|net|org|pub|sch",
-        "sd":"com|edu|gov|info|med|net|org|tv",
-        "se":"a|ac|b|bd|c|d|e|f|g|h|i|k|l|m|n|o|org|p|parti|pp|press|r|s|t|tm|u|w|x|y|z",
-        "sg":"com|edu|gov|idn|net|org|per",
-        "sn":"art|com|edu|gouv|org|perso|univ",
-        "sy":"com|edu|gov|mil|net|news|org",
-        "th":"ac|co|go|in|mi|net|or",
-        "tj":"ac|biz|co|com|edu|go|gov|info|int|mil|name|net|nic|org|test|web",
-        "tn":"agrinet|com|defense|edunet|ens|fin|gov|ind|info|intl|mincom|nat|net|org|perso|rnrt|rns|rnu|tourism",
-        "tz":"ac|co|go|ne|or",
-        "ua":"biz|cherkassy|chernigov|chernovtsy|ck|cn|co|com|crimea|cv|dn|dnepropetrovsk|donetsk|dp|edu|gov|if|in|ivano-frankivsk|kh|kharkov|kherson|khmelnitskiy|kiev|kirovograd|km|kr|ks|kv|lg|lugansk|lutsk|lviv|me|mk|net|nikolaev|od|odessa|org|pl|poltava|pp|rovno|rv|sebastopol|sumy|te|ternopil|uzhgorod|vinnica|vn|zaporizhzhe|zhitomir|zp|zt",
-        "ug":"ac|co|go|ne|or|org|sc",
-        "uk":"ac|bl|british-library|co|cym|gov|govt|icnet|jet|lea|ltd|me|mil|mod|national-library-scotland|nel|net|nhs|nic|nls|org|orgn|parliament|plc|police|sch|scot|soc",
-        "us":"dni|fed|isa|kids|nsn",
-        "uy":"com|edu|gub|mil|net|org",
-        "ve":"co|com|edu|gob|info|mil|net|org|web",
-        "vi":"co|com|k12|net|org",
-        "vn":"ac|biz|com|edu|gov|health|info|int|name|net|org|pro",
-        "ye":"co|com|gov|ltd|me|net|org|plc",
-        "yu":"ac|co|edu|gov|org",
-        "za":"ac|agric|alt|bourse|city|co|cybernet|db|edu|gov|grondar|iaccess|imt|inca|landesign|law|mil|net|ngo|nis|nom|olivetti|org|pix|school|tm|web",
-        "zm":"ac|co|com|edu|gov|net|org|sch"
-    },
-    // SLD expression for each TLD
-    //expressions: {},
-    // SLD expression for all TLDs
-    has_expression: null,
-    is_expression: null,
-    // validate domain is a known SLD
-    has: function(domain) {
-        return !!domain.match(SLD.has_expression);
-    },
-    is: function(domain) {
-        return !!domain.match(SLD.is_expression);
-    },
-    get: function(domain) {
-        var t = domain.match(SLD.has_expression);
-        return t && t[1] || null;
-    },
-    noConflict: function(){
-      if (root.SecondLevelDomains === this) {
-        root.SecondLevelDomains = _SecondLevelDomains;
-      }
-      return this;
-    },
-    init: function() {
-        var t = '';
-        for (var tld in SLD.list) {
-            if (!hasOwn.call(SLD.list, tld)) {
-                continue;
-            }
-
-            var expression = '(' + SLD.list[tld] + ')\.' + tld;
-            //SLD.expressions[tld] = new RegExp('\.' + expression + '$', 'i');
-            t += '|(' + expression + ')';
-        }
-
-        SLD.has_expression = new RegExp('\\.(' + t.substr(1) + ')$', 'i');
-        SLD.is_expression = new RegExp('^(' + t.substr(1) + ')$', 'i');
-    }
-};
-
-SLD.init();
-
-return SLD;
-}));
-
-/*!
- * URI.js - Mutating URLs
- *
- * Version: 1.12.1
- *
- * Author: Rodney Rehm
- * Web: http://medialize.github.com/URI.js/
- *
- * Licensed under
- *   MIT License http://www.opensource.org/licenses/mit-license
- *   GPL v3 http://opensource.org/licenses/GPL-3.0
- *
- */
-(function (root, factory) {
-    // https://github.com/umdjs/umd/blob/master/returnExports.js
-    if (typeof exports === 'object') {
-        // Node
-        module.exports = factory(require('./punycode'), require('./IPv6'), require('./SecondLevelDomains'));
-    } else if (typeof define === 'function' && define.amd) {
-        // AMD. Register as an anonymous module.
-        define('bower_components/URIjs/src/URI',['./punycode', './IPv6', './SecondLevelDomains'], factory);
-    } else {
-        // Browser globals (root is window)
-        root.URI = factory(root.punycode, root.IPv6, root.SecondLevelDomains, root);
-    }
-}(this, function (punycode, IPv6, SLD, root) {
-
-
-// save current URI variable, if any
-var _URI = root && root.URI;
-
-function URI(url, base) {
-    // Allow instantiation without the 'new' keyword
-    if (!(this instanceof URI)) {
-        return new URI(url, base);
-    }
-
-    if (url === undefined) {
-        if (typeof location !== 'undefined') {
-            url = location.href + "";
-        } else {
-            url = "";
-        }
-    }
-
-    this.href(url);
-
-    // resolve to base according to http://dvcs.w3.org/hg/url/raw-file/tip/Overview.html#constructor
-    if (base !== undefined) {
-        return this.absoluteTo(base);
-    }
-
-    return this;
-};
-
-URI.version = '1.12.1';
-
-var p = URI.prototype;
-var hasOwn = Object.prototype.hasOwnProperty;
-
-function escapeRegEx(string) {
-    // https://github.com/medialize/URI.js/commit/85ac21783c11f8ccab06106dba9735a31a86924d#commitcomment-821963
-    return string.replace(/([.*+?^=!:${}()|[\]\/\\])/g, '\\$1');
-}
-
-function getType(value) {
-    // IE8 doesn't return [Object Undefined] but [Object Object] for undefined value
-    if (value === undefined) {
-        return 'Undefined';
-    }
-
-    return String(Object.prototype.toString.call(value)).slice(8, -1);
-}
-
-function isArray(obj) {
-    return getType(obj) === "Array";
-}
-
-function filterArrayValues(data, value) {
-    var lookup = {};
-    var i, length;
-
-    if (isArray(value)) {
-        for (i = 0, length = value.length; i < length; i++) {
-            lookup[value[i]] = true;
-        }
-    } else {
-        lookup[value] = true;
-    }
-
-    for (i = 0, length = data.length; i < length; i++) {
-        if (lookup[data[i]] !== undefined) {
-            data.splice(i, 1);
-            length--;
-            i--;
-        }
-    }
-
-    return data;
-}
-
-function arrayContains(list, value) {
-    var i, length;
-    
-    // value may be string, number, array, regexp
-    if (isArray(value)) {
-        // Note: this can be optimized to O(n) (instead of current O(m * n))
-        for (i = 0, length = value.length; i < length; i++) {
-            if (!arrayContains(list, value[i])) {
-                return false;
-            }
-        }
-        
-        return true;
-    }
-    
-    var _type = getType(value);
-    for (i = 0, length = list.length; i < length; i++) {
-        if (_type === 'RegExp') {
-            if (typeof list[i] === 'string' && list[i].match(value)) {
-                return true;
-            }
-        } else if (list[i] === value) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-function arraysEqual(one, two) {
-    if (!isArray(one) || !isArray(two)) {
-        return false;
-    }
-    
-    // arrays can't be equal if they have different amount of content
-    if (one.length !== two.length) {
-        return false;
-    }
-
-    one.sort();
-    two.sort();
-
-    for (var i = 0, l = one.length; i < l; i++) {
-        if (one[i] !== two[i]) {
-            return false;
-        }
-    }
-    
-    return true;
-}
-
-URI._parts = function() {
-    return {
-        protocol: null,
-        username: null,
-        password: null,
-        hostname: null,
-        urn: null,
-        port: null,
-        path: null,
-        query: null,
-        fragment: null,
-        // state
-        duplicateQueryParameters: URI.duplicateQueryParameters,
-        escapeQuerySpace: URI.escapeQuerySpace
-    };
-};
-// state: allow duplicate query parameters (a=1&a=1)
-URI.duplicateQueryParameters = false;
-// state: replaces + with %20 (space in query strings)
-URI.escapeQuerySpace = true;
-// static properties
-URI.protocol_expression = /^[a-z][a-z0-9.+-]*$/i;
-URI.idn_expression = /[^a-z0-9\.-]/i;
-URI.punycode_expression = /(xn--)/i;
-// well, 333.444.555.666 matches, but it sure ain't no IPv4 - do we care?
-URI.ip4_expression = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-// credits to Rich Brown
-// source: http://forums.intermapper.com/viewtopic.php?p=1096#1096
-// specification: http://www.ietf.org/rfc/rfc4291.txt
-URI.ip6_expression = /^\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$/;
-// expression used is "gruber revised" (@gruber v2) determined to be the
-// best solution in a regex-golf we did a couple of ages ago at
-// * http://mathiasbynens.be/demo/url-regex
-// * http://rodneyrehm.de/t/url-regex.html
-URI.find_uri_expression = /\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'".,<>?«»“”‘’]))/ig;
-URI.findUri = {
-    // valid "scheme://" or "www."
-    start: /\b(?:([a-z][a-z0-9.+-]*:\/\/)|www\.)/gi,
-    // everything up to the next whitespace
-    end: /[\s\r\n]|$/,
-    // trim trailing punctuation captured by end RegExp
-    trim: /[`!()\[\]{};:'".,<>?«»“”„‘’]+$/
-};
-// http://www.iana.org/assignments/uri-schemes.html
-// http://en.wikipedia.org/wiki/List_of_TCP_and_UDP_port_numbers#Well-known_ports
-URI.defaultPorts = {
-    http: "80",
-    https: "443",
-    ftp: "21",
-    gopher: "70",
-    ws: "80",
-    wss: "443"
-};
-// allowed hostname characters according to RFC 3986
-// ALPHA DIGIT "-" "." "_" "~" "!" "$" "&" "'" "(" ")" "*" "+" "," ";" "=" %encoded
-// I've never seen a (non-IDN) hostname other than: ALPHA DIGIT . -
-URI.invalid_hostname_characters = /[^a-zA-Z0-9\.-]/;
-// map DOM Elements to their URI attribute
-URI.domAttributes = {
-    'a': 'href',
-    'blockquote': 'cite',
-    'link': 'href',
-    'base': 'href',
-    'script': 'src',
-    'form': 'action',
-    'img': 'src',
-    'area': 'href',
-    'iframe': 'src',
-    'embed': 'src',
-    'source': 'src',
-    'track': 'src',
-    'input': 'src' // but only if type="image"
-};
-URI.getDomAttribute = function(node) {
-    if (!node || !node.nodeName) {
-        return undefined;
-    }
-    
-    var nodeName = node.nodeName.toLowerCase();
-    // <input> should only expose src for type="image"
-    if (nodeName === 'input' && node.type !== 'image') {
-        return undefined;
-    }
-    
-    return URI.domAttributes[nodeName];
-};
-
-function escapeForDumbFirefox36(value) {
-    // https://github.com/medialize/URI.js/issues/91
-    return escape(value);
-}
-
-// encoding / decoding according to RFC3986
-function strictEncodeURIComponent(string) {
-    // see https://developer.mozilla.org/en-US/docs/JavaScript/Reference/Global_Objects/encodeURIComponent
-    return encodeURIComponent(string)
-        .replace(/[!'()*]/g, escapeForDumbFirefox36)
-        .replace(/\*/g, "%2A");
-}
-URI.encode = strictEncodeURIComponent;
-URI.decode = decodeURIComponent;
-URI.iso8859 = function() {
-    URI.encode = escape;
-    URI.decode = unescape;
-};
-URI.unicode = function() {
-    URI.encode = strictEncodeURIComponent;
-    URI.decode = decodeURIComponent;
-};
-URI.characters = {
-    pathname: {
-        encode: {
-            // RFC3986 2.1: For consistency, URI producers and normalizers should
-            // use uppercase hexadecimal digits for all percent-encodings.
-            expression: /%(24|26|2B|2C|3B|3D|3A|40)/ig,
-            map: {
-                // -._~!'()*
-                "%24": "$",
-                "%26": "&",
-                "%2B": "+",
-                "%2C": ",",
-                "%3B": ";",
-                "%3D": "=",
-                "%3A": ":",
-                "%40": "@"
-            }
-        },
-        decode: {
-            expression: /[\/\?#]/g,
-            map: {
-                "/": "%2F",
-                "?": "%3F",
-                "#": "%23"
-            }
-        }
-    },
-    reserved: {
-        encode: {
-            // RFC3986 2.1: For consistency, URI producers and normalizers should
-            // use uppercase hexadecimal digits for all percent-encodings.
-            expression: /%(21|23|24|26|27|28|29|2A|2B|2C|2F|3A|3B|3D|3F|40|5B|5D)/ig,
-            map: {
-                // gen-delims
-                "%3A": ":",
-                "%2F": "/",
-                "%3F": "?",
-                "%23": "#",
-                "%5B": "[",
-                "%5D": "]",
-                "%40": "@",
-                // sub-delims
-                "%21": "!",
-                "%24": "$",
-                "%26": "&",
-                "%27": "'",
-                "%28": "(",
-                "%29": ")",
-                "%2A": "*",
-                "%2B": "+",
-                "%2C": ",",
-                "%3B": ";",
-                "%3D": "="
-            }
-        }
-    }
-};
-URI.encodeQuery = function(string, escapeQuerySpace) {
-    var escaped = URI.encode(string + "");
-    if (escapeQuerySpace === undefined) {
-        escapeQuerySpace = URI.escapeQuerySpace;
-    }
-
-    return escapeQuerySpace ? escaped.replace(/%20/g, '+') : escaped;
-};
-URI.decodeQuery = function(string, escapeQuerySpace) {
-    string += "";
-    if (escapeQuerySpace === undefined) {
-        escapeQuerySpace = URI.escapeQuerySpace;
-    }
-
-    try {
-        return URI.decode(escapeQuerySpace ? string.replace(/\+/g, '%20') : string);
-    } catch(e) {
-        // we're not going to mess with weird encodings,
-        // give up and return the undecoded original string
-        // see https://github.com/medialize/URI.js/issues/87
-        // see https://github.com/medialize/URI.js/issues/92
-        return string;
-    }
-};
-URI.recodePath = function(string) {
-    var segments = (string + "").split('/');
-    for (var i = 0, length = segments.length; i < length; i++) {
-        segments[i] = URI.encodePathSegment(URI.decode(segments[i]));
-    }
-
-    return segments.join('/');
-};
-URI.decodePath = function(string) {
-    var segments = (string + "").split('/');
-    for (var i = 0, length = segments.length; i < length; i++) {
-        segments[i] = URI.decodePathSegment(segments[i]);
-    }
-
-    return segments.join('/');
-};
-// generate encode/decode path functions
-var _parts = {'encode':'encode', 'decode':'decode'};
-var _part;
-var generateAccessor = function(_group, _part) {
-    return function(string) {
-        return URI[_part](string + "").replace(URI.characters[_group][_part].expression, function(c) {
-            return URI.characters[_group][_part].map[c];
-        });
-    };
-};
-
-for (_part in _parts) {
-    URI[_part + "PathSegment"] = generateAccessor("pathname", _parts[_part]);
-}
-
-URI.encodeReserved = generateAccessor("reserved", "encode");
-
-URI.parse = function(string, parts) {
-    var pos;
-    if (!parts) {
-        parts = {};
-    }
-    // [protocol"://"[username[":"password]"@"]hostname[":"port]"/"?][path]["?"querystring]["#"fragment]
-
-    // extract fragment
-    pos = string.indexOf('#');
-    if (pos > -1) {
-        // escaping?
-        parts.fragment = string.substring(pos + 1) || null;
-        string = string.substring(0, pos);
-    }
-
-    // extract query
-    pos = string.indexOf('?');
-    if (pos > -1) {
-        // escaping?
-        parts.query = string.substring(pos + 1) || null;
-        string = string.substring(0, pos);
-    }
-
-    // extract protocol
-    if (string.substring(0, 2) === '//') {
-        // relative-scheme
-        parts.protocol = null;
-        string = string.substring(2);
-        // extract "user:pass@host:port"
-        string = URI.parseAuthority(string, parts);
-    } else {
-        pos = string.indexOf(':');
-        if (pos > -1) {
-            parts.protocol = string.substring(0, pos) || null;
-            if (parts.protocol && !parts.protocol.match(URI.protocol_expression)) {
-                // : may be within the path
-                parts.protocol = undefined;
-            } else if (parts.protocol === 'file') {
-                // the file scheme: does not contain an authority
-                string = string.substring(pos + 3);
-            } else if (string.substring(pos + 1, pos + 3) === '//') {
-                string = string.substring(pos + 3);
-
-                // extract "user:pass@host:port"
-                string = URI.parseAuthority(string, parts);
-            } else {
-                string = string.substring(pos + 1);
-                parts.urn = true;
-            }
-        }
-    }
-
-    // what's left must be the path
-    parts.path = string;
-
-    // and we're done
-    return parts;
-};
-URI.parseHost = function(string, parts) {
-    // extract host:port
-    var pos = string.indexOf('/');
-    var bracketPos;
-    var t;
-
-    if (pos === -1) {
-        pos = string.length;
-    }
-
-    if (string.charAt(0) === "[") {
-        // IPv6 host - http://tools.ietf.org/html/draft-ietf-6man-text-addr-representation-04#section-6
-        // I claim most client software breaks on IPv6 anyways. To simplify things, URI only accepts
-        // IPv6+port in the format [2001:db8::1]:80 (for the time being)
-        bracketPos = string.indexOf(']');
-        parts.hostname = string.substring(1, bracketPos) || null;
-        parts.port = string.substring(bracketPos+2, pos) || null;
-    } else if (string.indexOf(':') !== string.lastIndexOf(':')) {
-        // IPv6 host contains multiple colons - but no port
-        // this notation is actually not allowed by RFC 3986, but we're a liberal parser
-        parts.hostname = string.substring(0, pos) || null;
-        parts.port = null;
-    } else {
-        t = string.substring(0, pos).split(':');
-        parts.hostname = t[0] || null;
-        parts.port = t[1] || null;
-    }
-
-    if (parts.hostname && string.substring(pos).charAt(0) !== '/') {
-        pos++;
-        string = "/" + string;
-    }
-
-    return string.substring(pos) || '/';
-};
-URI.parseAuthority = function(string, parts) {
-    string = URI.parseUserinfo(string, parts);
-    return URI.parseHost(string, parts);
-};
-URI.parseUserinfo = function(string, parts) {
-    // extract username:password
-    var firstSlash = string.indexOf('/');
-    var pos = firstSlash > -1 
-        ? string.lastIndexOf('@', firstSlash) 
-        : string.indexOf('@');
-    var t;
-
-    // authority@ must come before /path
-    if (pos > -1 && (firstSlash === -1 || pos < firstSlash)) {
-        t = string.substring(0, pos).split(':');
-        parts.username = t[0] ? URI.decode(t[0]) : null;
-        t.shift();
-        parts.password = t[0] ? URI.decode(t.join(':')) : null;
-        string = string.substring(pos + 1);
-    } else {
-        parts.username = null;
-        parts.password = null;
-    }
-
-    return string;
-};
-URI.parseQuery = function(string, escapeQuerySpace) {
-    if (!string) {
-        return {};
-    }
-
-    // throw out the funky business - "?"[name"="value"&"]+
-    string = string.replace(/&+/g, '&').replace(/^\?*&*|&+$/g, '');
-
-    if (!string) {
-        return {};
-    }
-
-    var items = {};
-    var splits = string.split('&');
-    var length = splits.length;
-    var v, name, value;
-
-    for (var i = 0; i < length; i++) {
-        v = splits[i].split('=');
-        name = URI.decodeQuery(v.shift(), escapeQuerySpace);
-        // no "=" is null according to http://dvcs.w3.org/hg/url/raw-file/tip/Overview.html#collect-url-parameters
-        value = v.length ? URI.decodeQuery(v.join('='), escapeQuerySpace) : null;
-
-        if (items[name]) {
-            if (typeof items[name] === "string") {
-                items[name] = [items[name]];
-            }
-
-            items[name].push(value);
-        } else {
-            items[name] = value;
-        }
-    }
-
-    return items;
-};
-
-URI.build = function(parts) {
-    var t = "";
-
-    if (parts.protocol) {
-        t += parts.protocol + ":";
-    }
-
-    if (!parts.urn && (t || parts.hostname)) {
-        t += '//';
-    }
-
-    t += (URI.buildAuthority(parts) || '');
-
-    if (typeof parts.path === "string") {
-        if (parts.path.charAt(0) !== '/' && typeof parts.hostname === "string") {
-            t += '/';
-        }
-
-        t += parts.path;
-    }
-
-    if (typeof parts.query === "string" && parts.query) {
-        t += '?' + parts.query;
-    }
-
-    if (typeof parts.fragment === "string" && parts.fragment) {
-        t += '#' + parts.fragment;
-    }
-    return t;
-};
-URI.buildHost = function(parts) {
-    var t = "";
-
-    if (!parts.hostname) {
-        return "";
-    } else if (URI.ip6_expression.test(parts.hostname)) {
-        if (parts.port) {
-            t += "[" + parts.hostname + "]:" + parts.port;
-        } else {
-            // don't know if we should always wrap IPv6 in []
-            // the RFC explicitly says SHOULD, not MUST.
-            t += parts.hostname;
-        }
-    } else {
-        t += parts.hostname;
-        if (parts.port) {
-            t += ':' + parts.port;
-        }
-    }
-
-    return t;
-};
-URI.buildAuthority = function(parts) {
-    return URI.buildUserinfo(parts) + URI.buildHost(parts);
-};
-URI.buildUserinfo = function(parts) {
-    var t = "";
-
-    if (parts.username) {
-        t += URI.encode(parts.username);
-
-        if (parts.password) {
-            t += ':' + URI.encode(parts.password);
-        }
-
-        t += "@";
-    }
-
-    return t;
-};
-URI.buildQuery = function(data, duplicateQueryParameters, escapeQuerySpace) {
-    // according to http://tools.ietf.org/html/rfc3986 or http://labs.apache.org/webarch/uri/rfc/rfc3986.html
-    // being »-._~!$&'()*+,;=:@/?« %HEX and alnum are allowed
-    // the RFC explicitly states ?/foo being a valid use case, no mention of parameter syntax!
-    // URI.js treats the query string as being application/x-www-form-urlencoded
-    // see http://www.w3.org/TR/REC-html40/interact/forms.html#form-content-type
-
-    var t = "";
-    var unique, key, i, length;
-    for (key in data) {
-        if (hasOwn.call(data, key) && key) {
-            if (isArray(data[key])) {
-                unique = {};
-                for (i = 0, length = data[key].length; i < length; i++) {
-                    if (data[key][i] !== undefined && unique[data[key][i] + ""] === undefined) {
-                        t += "&" + URI.buildQueryParameter(key, data[key][i], escapeQuerySpace);
-                        if (duplicateQueryParameters !== true) {
-                            unique[data[key][i] + ""] = true;
-                        }
-                    }
-                }
-            } else if (data[key] !== undefined) {
-                t += '&' + URI.buildQueryParameter(key, data[key], escapeQuerySpace);
-            }
-        }
-    }
-
-    return t.substring(1);
-};
-URI.buildQueryParameter = function(name, value, escapeQuerySpace) {
-    // http://www.w3.org/TR/REC-html40/interact/forms.html#form-content-type -- application/x-www-form-urlencoded
-    // don't append "=" for null values, according to http://dvcs.w3.org/hg/url/raw-file/tip/Overview.html#url-parameter-serialization
-    return URI.encodeQuery(name, escapeQuerySpace) + (value !== null ? "=" + URI.encodeQuery(value, escapeQuerySpace) : "");
-};
-
-URI.addQuery = function(data, name, value) {
-    if (typeof name === "object") {
-        for (var key in name) {
-            if (hasOwn.call(name, key)) {
-                URI.addQuery(data, key, name[key]);
-            }
-        }
-    } else if (typeof name === "string") {
-        if (data[name] === undefined) {
-            data[name] = value;
-            return;
-        } else if (typeof data[name] === "string") {
-            data[name] = [data[name]];
-        }
-
-        if (!isArray(value)) {
-            value = [value];
-        }
-
-        data[name] = data[name].concat(value);
-    } else {
-        throw new TypeError("URI.addQuery() accepts an object, string as the name parameter");
-    }
-};
-URI.removeQuery = function(data, name, value) {
-    var i, length, key;
-    
-    if (isArray(name)) {
-        for (i = 0, length = name.length; i < length; i++) {
-            data[name[i]] = undefined;
-        }
-    } else if (typeof name === "object") {
-        for (key in name) {
-            if (hasOwn.call(name, key)) {
-                URI.removeQuery(data, key, name[key]);
-            }
-        }
-    } else if (typeof name === "string") {
-        if (value !== undefined) {
-            if (data[name] === value) {
-                data[name] = undefined;
-            } else if (isArray(data[name])) {
-                data[name] = filterArrayValues(data[name], value);
-            }
-        } else {
-            data[name] = undefined;
-        }
-    } else {
-        throw new TypeError("URI.addQuery() accepts an object, string as the first parameter");
-    }
-};
-URI.hasQuery = function(data, name, value, withinArray) {
-    if (typeof name === "object") {
-        for (var key in name) {
-            if (hasOwn.call(name, key)) {
-                if (!URI.hasQuery(data, key, name[key])) {
-                    return false;
-                }
-            }
-        }
-        
-        return true;
-    } else if (typeof name !== "string") {
-        throw new TypeError("URI.hasQuery() accepts an object, string as the name parameter");
-    }
-
-    switch (getType(value)) {
-        case 'Undefined':
-            // true if exists (but may be empty)
-            return name in data; // data[name] !== undefined;
-
-        case 'Boolean':
-            // true if exists and non-empty
-            var _booly = Boolean(isArray(data[name]) ? data[name].length : data[name]);
-            return value === _booly;
-
-        case 'Function':
-            // allow complex comparison
-            return !!value(data[name], name, data);
-
-        case 'Array':
-            if (!isArray(data[name])) {
-                return false;
-            }
-
-            var op = withinArray ? arrayContains : arraysEqual;
-            return op(data[name], value);
-
-        case 'RegExp':
-            if (!isArray(data[name])) {
-                return Boolean(data[name] && data[name].match(value));
-            }
-
-            if (!withinArray) {
-                return false;
-            }
-
-            return arrayContains(data[name], value);
-
-        case 'Number':
-            value = String(value);
-            // omit break;
-        case 'String':
-            if (!isArray(data[name])) {
-                return data[name] === value;
-            }
-
-            if (!withinArray) {
-                return false;
-            }
-
-            return arrayContains(data[name], value);
-
-        default:
-            throw new TypeError("URI.hasQuery() accepts undefined, boolean, string, number, RegExp, Function as the value parameter");
-    }
-};
-
-
-URI.commonPath = function(one, two) {
-    var length = Math.min(one.length, two.length);
-    var pos;
-
-    // find first non-matching character
-    for (pos = 0; pos < length; pos++) {
-        if (one.charAt(pos) !== two.charAt(pos)) {
-            pos--;
-            break;
-        }
-    }
-
-    if (pos < 1) {
-        return one.charAt(0) === two.charAt(0) && one.charAt(0) === '/' ? '/' : '';
-    }
-    
-    // revert to last /
-    if (one.charAt(pos) !== '/' || two.charAt(pos) !== '/') {
-        pos = one.substring(0, pos).lastIndexOf('/');
-    }
-
-    return one.substring(0, pos + 1);
-};
-
-URI.withinString = function(string, callback, options) {
-    options || (options = {});
-    var _start = options.start || URI.findUri.start;
-    var _end = options.end || URI.findUri.end;
-    var _trim = options.trim || URI.findUri.trim;
-    var _attributeOpen = /[a-z0-9-]=["']?$/i;
-
-    _start.lastIndex = 0;
-    while (true) {
-        var match = _start.exec(string);
-        if (!match) {
-            break;
-        }
-        
-        var start = match.index;
-        if (options.ignoreHtml) {
-            // attribut(e=["']?$)
-            var attributeOpen = string.slice(Math.max(start - 3, 0), start);
-            if (attributeOpen && _attributeOpen.test(attributeOpen)) {
-                continue;
-            }
-        }
-        
-        var end = start + string.slice(start).search(_end);
-        var slice = string.slice(start, end).replace(_trim, '');
-        if (options.ignore && options.ignore.test(slice)) {
-            continue;
-        }
-        
-        end = start + slice.length;
-        var result = callback(slice, start, end, string);
-        string = string.slice(0, start) + result + string.slice(end);
-        _start.lastIndex = start + result.length;
-    }
-
-    _start.lastIndex = 0;
-    return string;
-};
-
-URI.ensureValidHostname = function(v) {
-    // Theoretically URIs allow percent-encoding in Hostnames (according to RFC 3986)
-    // they are not part of DNS and therefore ignored by URI.js
-
-    if (v.match(URI.invalid_hostname_characters)) {
-        // test punycode
-        if (!punycode) {
-            throw new TypeError("Hostname '" + v + "' contains characters other than [A-Z0-9.-] and Punycode.js is not available");
-        }
-
-        if (punycode.toASCII(v).match(URI.invalid_hostname_characters)) {
-            throw new TypeError("Hostname '" + v + "' contains characters other than [A-Z0-9.-]");
-        }
-    }
-};
-
-// noConflict
-URI.noConflict = function(removeAll) {
-    if (removeAll) {
-        var unconflicted = {
-            URI: this.noConflict()
-        };
-
-        if (URITemplate && typeof URITemplate.noConflict == "function") {
-            unconflicted.URITemplate = URITemplate.noConflict();
-        }
-
-        if (IPv6 && typeof IPv6.noConflict == "function") {
-            unconflicted.IPv6 = IPv6.noConflict();
-        }
-
-        if (SecondLevelDomains && typeof SecondLevelDomains.noConflict == "function") {
-            unconflicted.SecondLevelDomains = SecondLevelDomains.noConflict();
-        }
-
-        return unconflicted;
-    } else if (root.URI === this) {
-        root.URI = _URI;
-    }
-
-    return this;
-};
-
-p.build = function(deferBuild) {
-    if (deferBuild === true) {
-        this._deferred_build = true;
-    } else if (deferBuild === undefined || this._deferred_build) {
-        this._string = URI.build(this._parts);
-        this._deferred_build = false;
-    }
-
-    return this;
-};
-
-p.clone = function() {
-    return new URI(this);
-};
-
-p.valueOf = p.toString = function() {
-    return this.build(false)._string;
-};
-
-// generate simple accessors
-_parts = {protocol: 'protocol', username: 'username', password: 'password', hostname: 'hostname',  port: 'port'};
-generateAccessor = function(_part){
-    return function(v, build) {
-        if (v === undefined) {
-            return this._parts[_part] || "";
-        } else {
-            this._parts[_part] = v || null;
-            this.build(!build);
-            return this;
-        }
-    };
-};
-
-for (_part in _parts) {                                                                                                                                                                                        
-    p[_part] = generateAccessor(_parts[_part]);
-}
-
-// generate accessors with optionally prefixed input
-_parts = {query: '?', fragment: '#'};
-generateAccessor = function(_part, _key){
-    return function(v, build) {
-        if (v === undefined) {
-            return this._parts[_part] || "";
-        } else {
-            if (v !== null) {
-                v = v + "";
-                if (v.charAt(0) === _key) {
-                    v = v.substring(1);
-                }
-            }
-
-            this._parts[_part] = v;
-            this.build(!build);
-            return this;
-        }
-    };
-};
-
-for (_part in _parts) {
-    p[_part] = generateAccessor(_part, _parts[_part]);
-}
-
-// generate accessors with prefixed output
-_parts = {search: ['?', 'query'], hash: ['#', 'fragment']};
-generateAccessor = function(_part, _key){
-    return function(v, build) {
-        var t = this[_part](v, build);
-        return typeof t === "string" && t.length ? (_key + t) : t;
-    };
-};
-
-for (_part in _parts) {
-    p[_part] = generateAccessor(_parts[_part][1], _parts[_part][0]);
-}
-
-p.pathname = function(v, build) {
-    if (v === undefined || v === true) {
-        var res = this._parts.path || (this._parts.hostname ? '/' : '');
-        return v ? URI.decodePath(res) : res;
-    } else {
-        this._parts.path = v ? URI.recodePath(v) : "/";
-        this.build(!build);
-        return this;
-    }
-};
-p.path = p.pathname;
-p.href = function(href, build) {
-    var key;
-    
-    if (href === undefined) {
-        return this.toString();
-    }
-
-    this._string = "";
-    this._parts = URI._parts();
-
-    var _URI = href instanceof URI;
-    var _object = typeof href === "object" && (href.hostname || href.path || href.pathname);
-    if (href.nodeName) {
-        var attribute = URI.getDomAttribute(href);
-        href = href[attribute] || "";
-        _object = false;
-    }
-    
-    // window.location is reported to be an object, but it's not the sort
-    // of object we're looking for: 
-    // * location.protocol ends with a colon
-    // * location.query != object.search
-    // * location.hash != object.fragment
-    // simply serializing the unknown object should do the trick 
-    // (for location, not for everything...)
-    if (!_URI && _object && href.pathname !== undefined) {
-        href = href.toString();
-    }
-
-    if (typeof href === "string") {
-        this._parts = URI.parse(href, this._parts);
-    } else if (_URI || _object) {
-        var src = _URI ? href._parts : href;
-        for (key in src) {
-            if (hasOwn.call(this._parts, key)) {
-                this._parts[key] = src[key];
-            }
-        }
-    } else {
-        throw new TypeError("invalid input");
-    }
-
-    this.build(!build);
-    return this;
-};
-
-// identification accessors
-p.is = function(what) {
-    var ip = false;
-    var ip4 = false;
-    var ip6 = false;
-    var name = false;
-    var sld = false;
-    var idn = false;
-    var punycode = false;
-    var relative = !this._parts.urn;
-
-    if (this._parts.hostname) {
-        relative = false;
-        ip4 = URI.ip4_expression.test(this._parts.hostname);
-        ip6 = URI.ip6_expression.test(this._parts.hostname);
-        ip = ip4 || ip6;
-        name = !ip;
-        sld = name && SLD && SLD.has(this._parts.hostname);
-        idn = name && URI.idn_expression.test(this._parts.hostname);
-        punycode = name && URI.punycode_expression.test(this._parts.hostname);
-    }
-
-    switch (what.toLowerCase()) {
-        case 'relative':
-            return relative;
-
-        case 'absolute':
-            return !relative;
-
-        // hostname identification
-        case 'domain':
-        case 'name':
-            return name;
-
-        case 'sld':
-            return sld;
-
-        case 'ip':
-            return ip;
-
-        case 'ip4':
-        case 'ipv4':
-        case 'inet4':
-            return ip4;
-
-        case 'ip6':
-        case 'ipv6':
-        case 'inet6':
-            return ip6;
-
-        case 'idn':
-            return idn;
-
-        case 'url':
-            return !this._parts.urn;
-
-        case 'urn':
-            return !!this._parts.urn;
-
-        case 'punycode':
-            return punycode;
-    }
-
-    return null;
-};
-
-// component specific input validation
-var _protocol = p.protocol;
-var _port = p.port;
-var _hostname = p.hostname;
-
-p.protocol = function(v, build) {
-    if (v !== undefined) {
-        if (v) {
-            // accept trailing ://
-            v = v.replace(/:(\/\/)?$/, '');
-
-            if (!v.match(URI.protocol_expression)) {
-                throw new TypeError("Protocol '" + v + "' contains characters other than [A-Z0-9.+-] or doesn't start with [A-Z]");
-            }
-        }
-    }
-    return _protocol.call(this, v, build);
-};
-p.scheme = p.protocol;
-p.port = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    if (v !== undefined) {
-        if (v === 0) {
-            v = null;
-        }
-
-        if (v) {
-            v += "";
-            if (v.charAt(0) === ":") {
-                v = v.substring(1);
-            }
-
-            if (v.match(/[^0-9]/)) {
-                throw new TypeError("Port '" + v + "' contains characters other than [0-9]");
-            }
-        }
-    }
-    return _port.call(this, v, build);
-};
-p.hostname = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    if (v !== undefined) {
-        var x = {};
-        URI.parseHost(v, x);
-        v = x.hostname;
-    }
-    return _hostname.call(this, v, build);
-};
-
-// compound accessors
-p.host = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    if (v === undefined) {
-        return this._parts.hostname ? URI.buildHost(this._parts) : "";
-    } else {
-        URI.parseHost(v, this._parts);
-        this.build(!build);
-        return this;
-    }
-};
-p.authority = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    if (v === undefined) {
-        return this._parts.hostname ? URI.buildAuthority(this._parts) : "";
-    } else {
-        URI.parseAuthority(v, this._parts);
-        this.build(!build);
-        return this;
-    }
-};
-p.userinfo = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    if (v === undefined) {
-        if (!this._parts.username) {
-            return "";
-        }
-
-        var t = URI.buildUserinfo(this._parts);
-        return t.substring(0, t.length -1);
-    } else {
-        if (v[v.length-1] !== '@') {
-            v += '@';
-        }
-
-        URI.parseUserinfo(v, this._parts);
-        this.build(!build);
-        return this;
-    }
-};
-p.resource = function(v, build) {
-    var parts;
-    
-    if (v === undefined) {
-        return this.path() + this.search() + this.hash();
-    }
-    
-    parts = URI.parse(v);
-    this._parts.path = parts.path;
-    this._parts.query = parts.query;
-    this._parts.fragment = parts.fragment;
-    this.build(!build);
-    return this;
-};
-
-// fraction accessors
-p.subdomain = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    // convenience, return "www" from "www.example.org"
-    if (v === undefined) {
-        if (!this._parts.hostname || this.is('IP')) {
-            return "";
-        }
-
-        // grab domain and add another segment
-        var end = this._parts.hostname.length - this.domain().length - 1;
-        return this._parts.hostname.substring(0, end) || "";
-    } else {
-        var e = this._parts.hostname.length - this.domain().length;
-        var sub = this._parts.hostname.substring(0, e);
-        var replace = new RegExp('^' + escapeRegEx(sub));
-
-        if (v && v.charAt(v.length - 1) !== '.') {
-            v += ".";
-        }
-
-        if (v) {
-            URI.ensureValidHostname(v);
-        }
-
-        this._parts.hostname = this._parts.hostname.replace(replace, v);
-        this.build(!build);
-        return this;
-    }
-};
-p.domain = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    if (typeof v === 'boolean') {
-        build = v;
-        v = undefined;
-    }
-
-    // convenience, return "example.org" from "www.example.org"
-    if (v === undefined) {
-        if (!this._parts.hostname || this.is('IP')) {
-            return "";
-        }
-
-        // if hostname consists of 1 or 2 segments, it must be the domain
-        var t = this._parts.hostname.match(/\./g);
-        if (t && t.length < 2) {
-            return this._parts.hostname;
-        }
-
-        // grab tld and add another segment
-        var end = this._parts.hostname.length - this.tld(build).length - 1;
-        end = this._parts.hostname.lastIndexOf('.', end -1) + 1;
-        return this._parts.hostname.substring(end) || "";
-    } else {
-        if (!v) {
-            throw new TypeError("cannot set domain empty");
-        }
-
-        URI.ensureValidHostname(v);
-
-        if (!this._parts.hostname || this.is('IP')) {
-            this._parts.hostname = v;
-        } else {
-            var replace = new RegExp(escapeRegEx(this.domain()) + "$");
-            this._parts.hostname = this._parts.hostname.replace(replace, v);
-        }
-
-        this.build(!build);
-        return this;
-    }
-};
-p.tld = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    if (typeof v === 'boolean') {
-        build = v;
-        v = undefined;
-    }
-
-    // return "org" from "www.example.org"
-    if (v === undefined) {
-        if (!this._parts.hostname || this.is('IP')) {
-            return "";
-        }
-
-        var pos = this._parts.hostname.lastIndexOf('.');
-        var tld = this._parts.hostname.substring(pos + 1);
-
-        if (build !== true && SLD && SLD.list[tld.toLowerCase()]) {
-            return SLD.get(this._parts.hostname) || tld;
-        }
-
-        return tld;
-    } else {
-        var replace;
-        
-        if (!v) {
-            throw new TypeError("cannot set TLD empty");
-        } else if (v.match(/[^a-zA-Z0-9-]/)) {
-            if (SLD && SLD.is(v)) {
-                replace = new RegExp(escapeRegEx(this.tld()) + "$");
-                this._parts.hostname = this._parts.hostname.replace(replace, v);
-            } else {
-                throw new TypeError("TLD '" + v + "' contains characters other than [A-Z0-9]");
-            }
-        } else if (!this._parts.hostname || this.is('IP')) {
-            throw new ReferenceError("cannot set TLD on non-domain host");
-        } else {
-            replace = new RegExp(escapeRegEx(this.tld()) + "$");
-            this._parts.hostname = this._parts.hostname.replace(replace, v);
-        }
-
-        this.build(!build);
-        return this;
-    }
-};
-p.directory = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    if (v === undefined || v === true) {
-        if (!this._parts.path && !this._parts.hostname) {
-            return '';
-        }
-
-        if (this._parts.path === '/') {
-            return '/';
-        }
-
-        var end = this._parts.path.length - this.filename().length - 1;
-        var res = this._parts.path.substring(0, end) || (this._parts.hostname ? "/" : "");
-
-        return v ? URI.decodePath(res) : res;
-
-    } else {
-        var e = this._parts.path.length - this.filename().length;
-        var directory = this._parts.path.substring(0, e);
-        var replace = new RegExp('^' + escapeRegEx(directory));
-
-        // fully qualifier directories begin with a slash
-        if (!this.is('relative')) {
-            if (!v) {
-                v = '/';
-            }
-
-            if (v.charAt(0) !== '/') {
-                v = "/" + v;
-            }
-        }
-
-        // directories always end with a slash
-        if (v && v.charAt(v.length - 1) !== '/') {
-            v += '/';
-        }
-
-        v = URI.recodePath(v);
-        this._parts.path = this._parts.path.replace(replace, v);
-        this.build(!build);
-        return this;
-    }
-};
-p.filename = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    if (v === undefined || v === true) {
-        if (!this._parts.path || this._parts.path === '/') {
-            return "";
-        }
-
-        var pos = this._parts.path.lastIndexOf('/');
-        var res = this._parts.path.substring(pos+1);
-
-        return v ? URI.decodePathSegment(res) : res;
-    } else {
-        var mutatedDirectory = false;
-        
-        if (v.charAt(0) === '/') {
-            v = v.substring(1);
-        }
-
-        if (v.match(/\.?\//)) {
-            mutatedDirectory = true;
-        }
-
-        var replace = new RegExp(escapeRegEx(this.filename()) + "$");
-        v = URI.recodePath(v);
-        this._parts.path = this._parts.path.replace(replace, v);
-
-        if (mutatedDirectory) {
-            this.normalizePath(build);
-        } else {
-            this.build(!build);
-        }
-
-        return this;
-    }
-};
-p.suffix = function(v, build) {
-    if (this._parts.urn) {
-        return v === undefined ? '' : this;
-    }
-
-    if (v === undefined || v === true) {
-        if (!this._parts.path || this._parts.path === '/') {
-            return "";
-        }
-
-        var filename = this.filename();
-        var pos = filename.lastIndexOf('.');
-        var s, res;
-
-        if (pos === -1) {
-            return "";
-        }
-
-        // suffix may only contain alnum characters (yup, I made this up.)
-        s = filename.substring(pos+1);
-        res = (/^[a-z0-9%]+$/i).test(s) ? s : "";
-        return v ? URI.decodePathSegment(res) : res;
-    } else {
-        if (v.charAt(0) === '.') {
-            v = v.substring(1);
-        }
-
-        var suffix = this.suffix();
-        var replace;
-
-        if (!suffix) {
-            if (!v) {
-                return this;
-            }
-
-            this._parts.path += '.' + URI.recodePath(v);
-        } else if (!v) {
-            replace = new RegExp(escapeRegEx("." + suffix) + "$");
-        } else {
-            replace = new RegExp(escapeRegEx(suffix) + "$");
-        }
-
-        if (replace) {
-            v = URI.recodePath(v);
-            this._parts.path = this._parts.path.replace(replace, v);
-        }
-
-        this.build(!build);
-        return this;
-    }
-};
-p.segment = function(segment, v, build) {
-    var separator = this._parts.urn ? ':' : '/';
-    var path = this.path();
-    var absolute = path.substring(0, 1) === '/';
-    var segments = path.split(separator);
-
-    if (segment !== undefined && typeof segment !== 'number') {
-        build = v;
-        v = segment;
-        segment = undefined;
-    }
-
-    if (segment !== undefined && typeof segment !== 'number') {
-        throw new Error("Bad segment '" + segment + "', must be 0-based integer");
-    }
-
-    if (absolute) {
-        segments.shift();
-    }
-
-    if (segment < 0) {
-        // allow negative indexes to address from the end
-        segment = Math.max(segments.length + segment, 0);
-    }
-
-    if (v === undefined) {
-        return segment === undefined
-            ? segments
-            : segments[segment];
-    } else if (segment === null || segments[segment] === undefined) {
-        if (isArray(v)) {
-            segments = [];
-            // collapse empty elements within array
-            for (var i=0, l=v.length; i < l; i++) {
-                if (!v[i].length && (!segments.length || !segments[segments.length -1].length)) {
-                    continue;
-                }
-                
-                if (segments.length && !segments[segments.length -1].length) {
-                    segments.pop();
-                }
-                
-                segments.push(v[i]);
-            }
-        } else if (v || (typeof v === "string")) {
-            if (segments[segments.length -1] === "") {
-                // empty trailing elements have to be overwritten
-                // to prevent results such as /foo//bar
-                segments[segments.length -1] = v;
-            } else {
-                segments.push(v);
-            }
-        }
-    } else {
-        if (v || (typeof v === "string" && v.length)) {
-            segments[segment] = v;
-        } else {
-            segments.splice(segment, 1);
-        }
-    }
-
-    if (absolute) {
-        segments.unshift("");
-    }
-
-    return this.path(segments.join(separator), build);
-};
-p.segmentCoded = function(segment, v, build) {
-    var segments, i, l;
-
-    if (typeof segment !== 'number') {
-        build = v;
-        v = segment;
-        segment = undefined;
-    }
-
-    if (v === undefined) {
-        segments = this.segment(segment, v, build);
-        if (!isArray(segments)) {
-            segments = segments !== undefined ? URI.decode(segments) : undefined;
-        } else {
-            for (i = 0, l = segments.length; i < l; i++) {
-                segments[i] = URI.decode(segments[i]);
-            }
-        }
-
-        return segments;
-    }
-
-    if (!isArray(v)) {
-        v = typeof v === 'string' ? URI.encode(v) : v;
-    } else {
-        for (i = 0, l = v.length; i < l; i++) {
-            v[i] = URI.decode(v[i]);
-        }
-    }
-
-    return this.segment(segment, v, build);
-};
-
-// mutating query string
-var q = p.query;
-p.query = function(v, build) {
-    if (v === true) {
-        return URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
-    } else if (typeof v === "function") {
-        var data = URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
-        var result = v.call(this, data);
-        this._parts.query = URI.buildQuery(result || data, this._parts.duplicateQueryParameters, this._parts.escapeQuerySpace);
-        this.build(!build);
-        return this;
-    } else if (v !== undefined && typeof v !== "string") {
-        this._parts.query = URI.buildQuery(v, this._parts.duplicateQueryParameters, this._parts.escapeQuerySpace);
-        this.build(!build);
-        return this;
-    } else {
-        return q.call(this, v, build);
-    }
-};
-p.setQuery = function(name, value, build) {
-    var data = URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
-    
-    if (typeof name === "object") {
-        for (var key in name) {
-            if (hasOwn.call(name, key)) {
-                data[key] = name[key];
-            }
-        }
-    } else if (typeof name === "string") {
-        data[name] = value !== undefined ? value : null;
-    } else {
-        throw new TypeError("URI.addQuery() accepts an object, string as the name parameter");
-    }
-    
-    this._parts.query = URI.buildQuery(data, this._parts.duplicateQueryParameters, this._parts.escapeQuerySpace);
-    if (typeof name !== "string") {
-        build = value;
-    }
-
-    this.build(!build);
-    return this;
-};
-p.addQuery = function(name, value, build) {
-    var data = URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
-    URI.addQuery(data, name, value === undefined ? null : value);
-    this._parts.query = URI.buildQuery(data, this._parts.duplicateQueryParameters, this._parts.escapeQuerySpace);
-    if (typeof name !== "string") {
-        build = value;
-    }
-
-    this.build(!build);
-    return this;
-};
-p.removeQuery = function(name, value, build) {
-    var data = URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
-    URI.removeQuery(data, name, value);
-    this._parts.query = URI.buildQuery(data, this._parts.duplicateQueryParameters, this._parts.escapeQuerySpace);
-    if (typeof name !== "string") {
-        build = value;
-    }
-
-    this.build(!build);
-    return this;
-};
-p.hasQuery = function(name, value, withinArray) {
-    var data = URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace);
-    return URI.hasQuery(data, name, value, withinArray);
-};
-p.setSearch = p.setQuery;
-p.addSearch = p.addQuery;
-p.removeSearch = p.removeQuery;
-p.hasSearch = p.hasQuery;
-
-// sanitizing URLs
-p.normalize = function() {
-    if (this._parts.urn) {
-        return this
-            .normalizeProtocol(false)
-            .normalizeQuery(false)
-            .normalizeFragment(false)
-            .build();
-    }
-
-    return this
-        .normalizeProtocol(false)
-        .normalizeHostname(false)
-        .normalizePort(false)
-        .normalizePath(false)
-        .normalizeQuery(false)
-        .normalizeFragment(false)
-        .build();
-};
-p.normalizeProtocol = function(build) {
-    if (typeof this._parts.protocol === "string") {
-        this._parts.protocol = this._parts.protocol.toLowerCase();
-        this.build(!build);
-    }
-
-    return this;
-};
-p.normalizeHostname = function(build) {
-    if (this._parts.hostname) {
-        if (this.is('IDN') && punycode) {
-            this._parts.hostname = punycode.toASCII(this._parts.hostname);
-        } else if (this.is('IPv6') && IPv6) {
-            this._parts.hostname = IPv6.best(this._parts.hostname);
-        }
-
-        this._parts.hostname = this._parts.hostname.toLowerCase();
-        this.build(!build);
-    }
-
-    return this;
-};
-p.normalizePort = function(build) {
-    // remove port of it's the protocol's default
-    if (typeof this._parts.protocol === "string" && this._parts.port === URI.defaultPorts[this._parts.protocol]) {
-        this._parts.port = null;
-        this.build(!build);
-    }
-
-    return this;
-};
-p.normalizePath = function(build) {
-    if (this._parts.urn) {
-        return this;
-    }
-
-    if (!this._parts.path || this._parts.path === '/') {
-        return this;
-    }
-
-    var _was_relative;
-    var _path = this._parts.path;
-    var _leadingParents = '';
-    var _parent, _pos;
-
-    // handle relative paths
-    if (_path.charAt(0) !== '/') {
-        _was_relative = true;
-        _path = '/' + _path;
-    }
-
-    // resolve simples
-    _path = _path
-        .replace(/(\/(\.\/)+)|(\/\.$)/g, '/')
-        .replace(/\/{2,}/g, '/');
-
-    // remember leading parents
-    if (_was_relative) {
-        _leadingParents = _path.substring(1).match(/^(\.\.\/)+/) || '';
-        if (_leadingParents) {
-            _leadingParents = _leadingParents[0];
-        }
-    }
-
-    // resolve parents
-    while (true) {
-        _parent = _path.indexOf('/..');
-        if (_parent === -1) {
-            // no more ../ to resolve
-            break;
-        } else if (_parent === 0) {
-            // top level cannot be relative, skip it
-            _path = _path.substring(3);
-            continue;
-        }
-
-        _pos = _path.substring(0, _parent).lastIndexOf('/');
-        if (_pos === -1) {
-            _pos = _parent;
-        }
-        _path = _path.substring(0, _pos) + _path.substring(_parent + 3);
-    }
-
-    // revert to relative
-    if (_was_relative && this.is('relative')) {
-        _path = _leadingParents + _path.substring(1);
-    }
-
-    _path = URI.recodePath(_path);
-    this._parts.path = _path;
-    this.build(!build);
-    return this;
-};
-p.normalizePathname = p.normalizePath;
-p.normalizeQuery = function(build) {
-    if (typeof this._parts.query === "string") {
-        if (!this._parts.query.length) {
-            this._parts.query = null;
-        } else {
-            this.query(URI.parseQuery(this._parts.query, this._parts.escapeQuerySpace));
-        }
-
-        this.build(!build);
-    }
-
-    return this;
-};
-p.normalizeFragment = function(build) {
-    if (!this._parts.fragment) {
-        this._parts.fragment = null;
-        this.build(!build);
-    }
-
-    return this;
-};
-p.normalizeSearch = p.normalizeQuery;
-p.normalizeHash = p.normalizeFragment;
-
-p.iso8859 = function() {
-    // expect unicode input, iso8859 output
-    var e = URI.encode;
-    var d = URI.decode;
-
-    URI.encode = escape;
-    URI.decode = decodeURIComponent;
-    this.normalize();
-    URI.encode = e;
-    URI.decode = d;
-    return this;
-};
-
-p.unicode = function() {
-    // expect iso8859 input, unicode output
-    var e = URI.encode;
-    var d = URI.decode;
-
-    URI.encode = strictEncodeURIComponent;
-    URI.decode = unescape;
-    this.normalize();
-    URI.encode = e;
-    URI.decode = d;
-    return this;
-};
-
-p.readable = function() {
-    var uri = this.clone();
-    // removing username, password, because they shouldn't be displayed according to RFC 3986
-    uri.username("").password("").normalize();
-    var t = '';
-    if (uri._parts.protocol) {
-        t += uri._parts.protocol + '://';
-    }
-
-    if (uri._parts.hostname) {
-        if (uri.is('punycode') && punycode) {
-            t += punycode.toUnicode(uri._parts.hostname);
-            if (uri._parts.port) {
-                t += ":" + uri._parts.port;
-            }
-        } else {
-            t += uri.host();
-        }
-    }
-
-    if (uri._parts.hostname && uri._parts.path && uri._parts.path.charAt(0) !== '/') {
-        t += '/';
-    }
-
-    t += uri.path(true);
-    if (uri._parts.query) {
-        var q = '';
-        for (var i = 0, qp = uri._parts.query.split('&'), l = qp.length; i < l; i++) {
-            var kv = (qp[i] || "").split('=');
-            q += '&' + URI.decodeQuery(kv[0], this._parts.escapeQuerySpace)
-                .replace(/&/g, '%26');
-
-            if (kv[1] !== undefined) {
-                q += "=" + URI.decodeQuery(kv[1], this._parts.escapeQuerySpace)
-                    .replace(/&/g, '%26');
-            }
-        }
-        t += '?' + q.substring(1);
-    }
-
-    t += URI.decodeQuery(uri.hash(), true);
-    return t;
-};
-
-// resolving relative and absolute URLs
-p.absoluteTo = function(base) {
-    var resolved = this.clone();
-    var properties = ['protocol', 'username', 'password', 'hostname', 'port'];
-    var basedir, i, p;
-
-    if (this._parts.urn) {
-        throw new Error('URNs do not have any generally defined hierarchical components');
-    }
-
-    if (!(base instanceof URI)) {
-        base = new URI(base);
-    }
-    
-    if (!resolved._parts.protocol) {
-        resolved._parts.protocol = base._parts.protocol;
-    }
-    
-    if (this._parts.hostname) {
-        return resolved;
-    }
-
-    for (i = 0; p = properties[i]; i++) {
-        resolved._parts[p] = base._parts[p];
-    }
-    
-    if (!resolved._parts.path) {
-        resolved._parts.path = base._parts.path;
-        if (!resolved._parts.query) {
-            resolved._parts.query = base._parts.query;
-        }
-    } else if (resolved._parts.path.substring(-2) === '..') {
-        resolved._parts.path += '/';
-    }
-    
-    if (resolved.path().charAt(0) !== '/') {
-        basedir = base.directory();
-        resolved._parts.path = (basedir ? (basedir + '/') : '') + resolved._parts.path;
-        resolved.normalizePath();
-    }
-
-    resolved.build();
-    return resolved;
-};
-p.relativeTo = function(base) {
-    var relative = this.clone().normalize();
-    var relativeParts, baseParts, common, relativePath, basePath;
-
-    if (relative._parts.urn) {
-        throw new Error('URNs do not have any generally defined hierarchical components');
-    }
-
-    base = new URI(base).normalize();
-    relativeParts = relative._parts;
-    baseParts = base._parts;
-    relativePath = relative.path();
-    basePath = base.path();
-
-    if (relativePath.charAt(0) !== '/') {
-        throw new Error('URI is already relative');
-    }
-
-    if (basePath.charAt(0) !== '/') {
-        throw new Error('Cannot calculate a URI relative to another relative URI');
-    }
-
-    if (relativeParts.protocol === baseParts.protocol) {
-        relativeParts.protocol = null;
-    }
-
-    if (relativeParts.username !== baseParts.username || relativeParts.password !== baseParts.password) {
-        return relative.build();
-    }
-
-    if (relativeParts.protocol !== null || relativeParts.username !== null || relativeParts.password !== null) {
-        return relative.build();
-    }
-
-    if (relativeParts.hostname === baseParts.hostname && relativeParts.port === baseParts.port) {
-        relativeParts.hostname = null;
-        relativeParts.port = null;
-    } else {
-        return relative.build();
-    }
-
-    if (relativePath === basePath) {
-        relativeParts.path = '';
-        return relative.build();
-    }
-    
-    // determine common sub path
-    common = URI.commonPath(relative.path(), base.path());
-
-    // If the paths have nothing in common, return a relative URL with the absolute path.
-    if (!common) {
-        return relative.build();
-    }
-
-    var parents = baseParts.path
-        .substring(common.length)
-        .replace(/[^\/]*$/, '')
-        .replace(/.*?\//g, '../');
-
-    relativeParts.path = parents + relativeParts.path.substring(common.length);
-
-    return relative.build();
-};
-
-// comparing URIs
-p.equals = function(uri) {
-    var one = this.clone();
-    var two = new URI(uri);
-    var one_map = {};
-    var two_map = {};
-    var checked = {};
-    var one_query, two_query, key;
-
-    one.normalize();
-    two.normalize();
-
-    // exact match
-    if (one.toString() === two.toString()) {
-        return true;
-    }
-
-    // extract query string
-    one_query = one.query();
-    two_query = two.query();
-    one.query("");
-    two.query("");
-
-    // definitely not equal if not even non-query parts match
-    if (one.toString() !== two.toString()) {
-        return false;
-    }
-
-    // query parameters have the same length, even if they're permuted
-    if (one_query.length !== two_query.length) {
-        return false;
-    }
-
-    one_map = URI.parseQuery(one_query, this._parts.escapeQuerySpace);
-    two_map = URI.parseQuery(two_query, this._parts.escapeQuerySpace);
-
-    for (key in one_map) {
-        if (hasOwn.call(one_map, key)) {
-            if (!isArray(one_map[key])) {
-                if (one_map[key] !== two_map[key]) {
-                    return false;
-                }
-            } else if (!arraysEqual(one_map[key], two_map[key])) {
-                return false;
-            }
-
-            checked[key] = true;
-        }
-    }
-
-    for (key in two_map) {
-        if (hasOwn.call(two_map, key)) {
-            if (!checked[key]) {
-                // two contains a parameter not present in one
-                return false;
-            }
-        }
-    }
-
-    return true;
-};
-
-// state
-p.duplicateQueryParameters = function(v) {
-    this._parts.duplicateQueryParameters = !!v;
-    return this;
-};
-
-p.escapeQuerySpace = function(v) {
-    this._parts.escapeQuerySpace = !!v;
-    return this;
-};
-
-return URI;
-}));
-
-/**
- * @license RequireJS text 2.0.12 Copyright (c) 2010-2014, The Dojo Foundation All Rights Reserved.
- * Available via the MIT or new BSD license.
- * see: http://github.com/requirejs/text for details
- */
-/*jslint regexp: true */
-/*global require, XMLHttpRequest, ActiveXObject,
-  define, window, process, Packages,
-  java, location, Components, FileUtils */
-
-define('bower_components/requirejs-text/text',['module'], function (module) {
-    
-
-    var text, fs, Cc, Ci, xpcIsWindows,
-        progIds = ['Msxml2.XMLHTTP', 'Microsoft.XMLHTTP', 'Msxml2.XMLHTTP.4.0'],
-        xmlRegExp = /^\s*<\?xml(\s)+version=[\'\"](\d)*.(\d)*[\'\"](\s)*\?>/im,
-        bodyRegExp = /<body[^>]*>\s*([\s\S]+)\s*<\/body>/im,
-        hasLocation = typeof location !== 'undefined' && location.href,
-        defaultProtocol = hasLocation && location.protocol && location.protocol.replace(/\:/, ''),
-        defaultHostName = hasLocation && location.hostname,
-        defaultPort = hasLocation && (location.port || undefined),
-        buildMap = {},
-        masterConfig = (module.config && module.config()) || {};
-
-    text = {
-        version: '2.0.12',
-
-        strip: function (content) {
-            //Strips <?xml ...?> declarations so that external SVG and XML
-            //documents can be added to a document without worry. Also, if the string
-            //is an HTML document, only the part inside the body tag is returned.
-            if (content) {
-                content = content.replace(xmlRegExp, "");
-                var matches = content.match(bodyRegExp);
-                if (matches) {
-                    content = matches[1];
-                }
-            } else {
-                content = "";
-            }
-            return content;
-        },
-
-        jsEscape: function (content) {
-            return content.replace(/(['\\])/g, '\\$1')
-                .replace(/[\f]/g, "\\f")
-                .replace(/[\b]/g, "\\b")
-                .replace(/[\n]/g, "\\n")
-                .replace(/[\t]/g, "\\t")
-                .replace(/[\r]/g, "\\r")
-                .replace(/[\u2028]/g, "\\u2028")
-                .replace(/[\u2029]/g, "\\u2029");
-        },
-
-        createXhr: masterConfig.createXhr || function () {
-            //Would love to dump the ActiveX crap in here. Need IE 6 to die first.
-            var xhr, i, progId;
-            if (typeof XMLHttpRequest !== "undefined") {
-                return new XMLHttpRequest();
-            } else if (typeof ActiveXObject !== "undefined") {
-                for (i = 0; i < 3; i += 1) {
-                    progId = progIds[i];
-                    try {
-                        xhr = new ActiveXObject(progId);
-                    } catch (e) {}
-
-                    if (xhr) {
-                        progIds = [progId];  // so faster next time
-                        break;
-                    }
-                }
-            }
-
-            return xhr;
-        },
-
-        /**
-         * Parses a resource name into its component parts. Resource names
-         * look like: module/name.ext!strip, where the !strip part is
-         * optional.
-         * @param {String} name the resource name
-         * @returns {Object} with properties "moduleName", "ext" and "strip"
-         * where strip is a boolean.
-         */
-        parseName: function (name) {
-            var modName, ext, temp,
-                strip = false,
-                index = name.indexOf("."),
-                isRelative = name.indexOf('./') === 0 ||
-                             name.indexOf('../') === 0;
-
-            if (index !== -1 && (!isRelative || index > 1)) {
-                modName = name.substring(0, index);
-                ext = name.substring(index + 1, name.length);
-            } else {
-                modName = name;
-            }
-
-            temp = ext || modName;
-            index = temp.indexOf("!");
-            if (index !== -1) {
-                //Pull off the strip arg.
-                strip = temp.substring(index + 1) === "strip";
-                temp = temp.substring(0, index);
-                if (ext) {
-                    ext = temp;
-                } else {
-                    modName = temp;
-                }
-            }
-
-            return {
-                moduleName: modName,
-                ext: ext,
-                strip: strip
-            };
-        },
-
-        xdRegExp: /^((\w+)\:)?\/\/([^\/\\]+)/,
-
-        /**
-         * Is an URL on another domain. Only works for browser use, returns
-         * false in non-browser environments. Only used to know if an
-         * optimized .js version of a text resource should be loaded
-         * instead.
-         * @param {String} url
-         * @returns Boolean
-         */
-        useXhr: function (url, protocol, hostname, port) {
-            var uProtocol, uHostName, uPort,
-                match = text.xdRegExp.exec(url);
-            if (!match) {
-                return true;
-            }
-            uProtocol = match[2];
-            uHostName = match[3];
-
-            uHostName = uHostName.split(':');
-            uPort = uHostName[1];
-            uHostName = uHostName[0];
-
-            return (!uProtocol || uProtocol === protocol) &&
-                   (!uHostName || uHostName.toLowerCase() === hostname.toLowerCase()) &&
-                   ((!uPort && !uHostName) || uPort === port);
-        },
-
-        finishLoad: function (name, strip, content, onLoad) {
-            content = strip ? text.strip(content) : content;
-            if (masterConfig.isBuild) {
-                buildMap[name] = content;
-            }
-            onLoad(content);
-        },
-
-        load: function (name, req, onLoad, config) {
-            //Name has format: some.module.filext!strip
-            //The strip part is optional.
-            //if strip is present, then that means only get the string contents
-            //inside a body tag in an HTML string. For XML/SVG content it means
-            //removing the <?xml ...?> declarations so the content can be inserted
-            //into the current doc without problems.
-
-            // Do not bother with the work if a build and text will
-            // not be inlined.
-            if (config && config.isBuild && !config.inlineText) {
-                onLoad();
-                return;
-            }
-
-            masterConfig.isBuild = config && config.isBuild;
-
-            var parsed = text.parseName(name),
-                nonStripName = parsed.moduleName +
-                    (parsed.ext ? '.' + parsed.ext : ''),
-                url = req.toUrl(nonStripName),
-                useXhr = (masterConfig.useXhr) ||
-                         text.useXhr;
-
-            // Do not load if it is an empty: url
-            if (url.indexOf('empty:') === 0) {
-                onLoad();
-                return;
-            }
-
-            //Load the text. Use XHR if possible and in a browser.
-            if (!hasLocation || useXhr(url, defaultProtocol, defaultHostName, defaultPort)) {
-                text.get(url, function (content) {
-                    text.finishLoad(name, parsed.strip, content, onLoad);
-                }, function (err) {
-                    if (onLoad.error) {
-                        onLoad.error(err);
-                    }
-                });
-            } else {
-                //Need to fetch the resource across domains. Assume
-                //the resource has been optimized into a JS module. Fetch
-                //by the module name + extension, but do not include the
-                //!strip part to avoid file system issues.
-                req([nonStripName], function (content) {
-                    text.finishLoad(parsed.moduleName + '.' + parsed.ext,
-                                    parsed.strip, content, onLoad);
-                });
-            }
-        },
-
-        write: function (pluginName, moduleName, write, config) {
-            if (buildMap.hasOwnProperty(moduleName)) {
-                var content = text.jsEscape(buildMap[moduleName]);
-                write.asModule(pluginName + "!" + moduleName,
-                               "define(function () { return '" +
-                                   content +
-                               "';});\n");
-            }
-        },
-
-        writeFile: function (pluginName, moduleName, req, write, config) {
-            var parsed = text.parseName(moduleName),
-                extPart = parsed.ext ? '.' + parsed.ext : '',
-                nonStripName = parsed.moduleName + extPart,
-                //Use a '.js' file name so that it indicates it is a
-                //script that can be loaded across domains.
-                fileName = req.toUrl(parsed.moduleName + extPart) + '.js';
-
-            //Leverage own load() method to load plugin value, but only
-            //write out values that do not have the strip argument,
-            //to avoid any potential issues with ! in file names.
-            text.load(nonStripName, req, function (value) {
-                //Use own write() method to construct full module value.
-                //But need to create shell that translates writeFile's
-                //write() to the right interface.
-                var textWrite = function (contents) {
-                    return write(fileName, contents);
-                };
-                textWrite.asModule = function (moduleName, contents) {
-                    return write.asModule(moduleName, fileName, contents);
-                };
-
-                text.write(pluginName, nonStripName, textWrite, config);
-            }, config);
-        }
-    };
-
-    if (masterConfig.env === 'node' || (!masterConfig.env &&
-            typeof process !== "undefined" &&
-            process.versions &&
-            !!process.versions.node &&
-            !process.versions['node-webkit'])) {
-        //Using special require.nodeRequire, something added by r.js.
-        fs = require.nodeRequire('fs');
-
-        text.get = function (url, callback, errback) {
-            try {
-                var file = fs.readFileSync(url, 'utf8');
-                //Remove BOM (Byte Mark Order) from utf8 files if it is there.
-                if (file.indexOf('\uFEFF') === 0) {
-                    file = file.substring(1);
-                }
-                callback(file);
-            } catch (e) {
-                if (errback) {
-                    errback(e);
-                }
-            }
-        };
-    } else if (masterConfig.env === 'xhr' || (!masterConfig.env &&
-            text.createXhr())) {
-        text.get = function (url, callback, errback, headers) {
-            var xhr = text.createXhr(), header;
-            xhr.open('GET', url, true);
-
-            //Allow plugins direct access to xhr headers
-            if (headers) {
-                for (header in headers) {
-                    if (headers.hasOwnProperty(header)) {
-                        xhr.setRequestHeader(header.toLowerCase(), headers[header]);
-                    }
-                }
-            }
-
-            //Allow overrides specified in config
-            if (masterConfig.onXhr) {
-                masterConfig.onXhr(xhr, url);
-            }
-
-            xhr.onreadystatechange = function (evt) {
-                var status, err;
-                //Do not explicitly handle errors, those should be
-                //visible via console output in the browser.
-                if (xhr.readyState === 4) {
-                    status = xhr.status || 0;
-                    if (status > 399 && status < 600) {
-                        //An http 4xx or 5xx error. Signal an error.
-                        err = new Error(url + ' HTTP status: ' + status);
-                        err.xhr = xhr;
-                        if (errback) {
-                            errback(err);
-                        }
-                    } else {
-                        callback(xhr.responseText);
-                    }
-
-                    if (masterConfig.onXhrComplete) {
-                        masterConfig.onXhrComplete(xhr, url);
-                    }
-                }
-            };
-            xhr.send(null);
-        };
-    } else if (masterConfig.env === 'rhino' || (!masterConfig.env &&
-            typeof Packages !== 'undefined' && typeof java !== 'undefined')) {
-        //Why Java, why is this so awkward?
-        text.get = function (url, callback) {
-            var stringBuffer, line,
-                encoding = "utf-8",
-                file = new java.io.File(url),
-                lineSeparator = java.lang.System.getProperty("line.separator"),
-                input = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(file), encoding)),
-                content = '';
-            try {
-                stringBuffer = new java.lang.StringBuffer();
-                line = input.readLine();
-
-                // Byte Order Mark (BOM) - The Unicode Standard, version 3.0, page 324
-                // http://www.unicode.org/faq/utf_bom.html
-
-                // Note that when we use utf-8, the BOM should appear as "EF BB BF", but it doesn't due to this bug in the JDK:
-                // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=4508058
-                if (line && line.length() && line.charAt(0) === 0xfeff) {
-                    // Eat the BOM, since we've already found the encoding on this file,
-                    // and we plan to concatenating this buffer with others; the BOM should
-                    // only appear at the top of a file.
-                    line = line.substring(1);
-                }
-
-                if (line !== null) {
-                    stringBuffer.append(line);
-                }
-
-                while ((line = input.readLine()) !== null) {
-                    stringBuffer.append(lineSeparator);
-                    stringBuffer.append(line);
-                }
-                //Make sure we return a JavaScript string and not a Java string.
-                content = String(stringBuffer.toString()); //String
-            } finally {
-                input.close();
-            }
-            callback(content);
-        };
-    } else if (masterConfig.env === 'xpconnect' || (!masterConfig.env &&
-            typeof Components !== 'undefined' && Components.classes &&
-            Components.interfaces)) {
-        //Avert your gaze!
-        Cc = Components.classes;
-        Ci = Components.interfaces;
-        Components.utils['import']('resource://gre/modules/FileUtils.jsm');
-        xpcIsWindows = ('@mozilla.org/windows-registry-key;1' in Cc);
-
-        text.get = function (url, callback) {
-            var inStream, convertStream, fileObj,
-                readData = {};
-
-            if (xpcIsWindows) {
-                url = url.replace(/\//g, '\\');
-            }
-
-            fileObj = new FileUtils.File(url);
-
-            //XPCOM, you so crazy
-            try {
-                inStream = Cc['@mozilla.org/network/file-input-stream;1']
-                           .createInstance(Ci.nsIFileInputStream);
-                inStream.init(fileObj, 1, 0, false);
-
-                convertStream = Cc['@mozilla.org/intl/converter-input-stream;1']
-                                .createInstance(Ci.nsIConverterInputStream);
-                convertStream.init(inStream, "utf-8", inStream.available(),
-                Ci.nsIConverterInputStream.DEFAULT_REPLACEMENT_CHARACTER);
-
-                convertStream.readString(inStream.available(), readData);
-                convertStream.close();
-                inStream.close();
-                callback(readData.value);
-            } catch (e) {
-                throw new Error((fileObj && fileObj.path || '') + ': ' + e);
-            }
+        }, true);
+
+        return function nextTick(fn) {
+            queue.push(fn);
+            window.postMessage('process-tick', '*');
         };
     }
-    return text;
-});
 
-define('bower_components/requirejs-text/text!script/gui-template.html!strip',[],function () { return '<div class="chuckbob">\n    <a class="chuckbob__toggler" href="#">Hide</a>\n    <div class="chuckbob__container">\n    <h1>ChuckBob</h1>\n\t  <select class="chuckbob__tests-list"></select>\n\n\n\t  <fieldset class="chuckbob__single-step-controls">\n\t\t<label>Single step</label>\n\t\t<button class="chuckbob__single-step">Start</button>\n\t\t<button class="chuckbob__step">Step</button>\n\t\t<button class="chuckbob__resume">Resume</button>\n\t  </fieldset>\n\n  \t  <fieldset class="chuckbob__run-controls">\n\t\t<label>Run</label>\n\t\t<button class="chuckbob__run-button">All</button>\n\t\t<button class="chuckbob__run-single-button">Selected</button>\n\t\t<button class="chuckbob__restart-button">Reload</button>\n\t  </fieldset>\n\t  <h2>Result:<span class="chuckbob__result">(run to see)</span></h2>\n\t  <textarea class="chuckbob__test-log"></textarea>\n\n  \t  <fieldset class="chuckbox__exit-controls">\n\t\t<button class="chuckbob__exit-button" title="Go to original url">Home</button>\n\t\t<button class="chuckbob__abort-button" title="Close this window">Abort</button>\n\t  </fieldset>\n\n\t  <!--Title: Sad Trombone\n\t  About: This is the sad trombone sound effect great for telling someone they screwed up or have just messed something up big. bookmark and play for your pals..in good humor of course.\n\t  License: Attribution 3.0 | Recorded by Joe Lamb\n\t  http://soundbible.com/1830-Sad-Trombone.html\n\t  -->\n\t  <audio class="chuckbob__fail-sound" src="data:audio/mp3;base64,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F5lYcBxnJQYACoQwgQ0QRP5EljzFoymis1dgMAl+TCA5svkysYARmCKCraqxaeaZKxAGGgjdYPUrhiCp//vSADAABslVz2u6Y2zDaQntd1hcliUfT61h67LYo+n1rD139wE4SohrkhCMic+mMCylJhDYKa0CJyI1mWywyecxQ8PH3ueoTlpVRQekToKPJJaM/46RrFL69cdP0okdXMd9YFizLN42+xNebmnuRbO2z6dt9zZ3t+WIe78ox////////////////////////////////////////7QAjklu1tsZZgAgFMBwAM8IKMEgBYJGzAcQRYYnrMaR5M2T7IsTKw4cZycEAAaEMIGNEEVkQtakx6Kqqr1UMCgFA0xAGdYNDbYKOgeiA3OXy0KVF0FpiiBaCPMTUPYi3alfSBJyBb159KeHrecxZlsooY5My12aGPSrtiGpDg/PJbY5nVsxr86WlylEvsV71NnPSmNU8tw3ylzr7qyfPOXc3Uq7rZdnNUVetnvV3uPbtm/qwPKhkEDIWLg4sEAUPizv/rhIJkm231saTKFZ2EAngEPH/bIYhUhRACmIwCYgreVVIOubEmwJcSOyHFctxIo19NRWlFViiA5pUWXPH97+tFkyU93/riyiljrRQEcvggEQyDmddyV7yAePZ2raGRYMKErV22s8ZP1gx5H0R+1sbuJAkXoDIsXfOXnq+hUYG6kJ7BVi03vVLOt5fXvfM8GFEa5bQMU8TT+B8702RgZWJJhwoXCwNBcRih7eL2P12ln2DUwkEuTbb62NJpC22EAnkDnj/tkMUqQGPApiMAn8dNNpB1zYabAlxJ7Icly3Efhy1YFQpCscQ2YFJ1b4nTQzRzk+mSpW/doL0I+LWS4C2QAUKZcD+ZFfdD2BxSkCeEzqB01p56kT5gnW5v6s6nWHzYptMUNKQniid5eR2uSsJ7h6+UDXGVEabbm+5+tivjPGOL9wM4eLtr9Za3+q6vW9YFyqulKfoe1KhIlBNvtf/P/SBbQ8+1h/7KSU7Nt//tY2kyx6Uix5XFEJSc76BsnLjG46hJWHAoEVqKG4OFioTIAFQKDq39TJWLZqwEzZmblM8TCcvKCnodBoqpFwt3HiCvZXgnqQJuznWvHg40mThMECh7krojGfqgWkmfZeHNRkrptpJQoVVqM/WX1WxyaoJzq9wbr/+9IAPgAHykXV6zh67Lio+r1nD12V5Q9PrWHruvqkafWcPbZ2PMKC/P9YjQYZ4Lzfdnbni5w/hrmBfe495Kz6zDzt5TWp7hACtnwMsmh4AcNeHiNRG59rkc3atKP//////////////////////////////////////////////////////////////////////////////////////////+klOzbf/7WNpQqcykaPK5IhKTphQNk5cY3nS/qw4FEhKk0NwkWCX0iAyJMdW/qZK7bMy+zjLTgZuiYT90csbBGGerEYo0sXoNNUuBAVEcarP9EE0cXBZYFIhKjfqJlfm7APttR5SLlyMOOvxzsTqqiPpnja26c0VpVq942KpvjNSHw3p9R0/P2pdyI9aouVVGfH/iVz+4clXPEsHGItfiNrNfFAYiB9AEICjxEImYZempS37TSpmWTXACk3JbdrY0EBqDTYSqfQNi0XOk8VpirEQEfGtMtCxTKGSMhLlJQNNfZKttnqQlLqaazUcIqFPVsTdaNkTqQ/Lp2OQqiXA3QIYANE9BGgWAjapJUpHjUarCPUXJNJQ41FNQurWaw5HJIGgzCSzt7fCfH0dMdDHjliFV8rD1fOo584a4yqbFwzOEVrRK4cErD0rWhLYkdPX1aw966shON4WoT6UBVzKD4bDe3NmiAb8oAEm5LbtbGkXpHQGwlV8WBi1s5mFEIqxEBPjTzLQoKZRyRkJbJKBkr7JVts8Rd5dTLWSjhFWpot0aLG1zPJDdNi+EDRRWhuiNgKEuVEIvYojIVzMyiDwjlSW4tysUBY1WhEAnsqbOxyakMWg1Ksfr6iuhBOYbEv3ftSda2Q/XODo+byx8KmA50XENU2nZE+pV2qdxKTUfSsudwJ2SRoe2g4xPXE0CDDfYkusJKDoqVEkMhuREXvrKzixZqa1KEgYRIBcktsiRCXLRmjmDiOIwArYrw5GwRYVv+ieupTmgVnUKgfEt+TIcR9zAB2XfVslEANeCxlBG2Z4mZONpAb3dh2ViMKd6qqZwkEQYIiTgLebBOZVVdmcZi/hfJBLx1cdrtADVQC4UYjRbyePbulw5KA/G5iVR1Oo79XnP/70gA+AAaOSFFrmHrsuiqqTW8PbZkpQUmt4w27KynpNbxht6rEOZW/CmiVfS0tK3Zdtzx2u6SR3k7FF1AZ22HqA2x2aaI8xrEG+9494VmMRJGhQGhgOEwgDqAWAh+ju6f////////////////////////////////9lEkpyW22NIq9epR8xptTQaQzQ+GVGheGyz6PyMckQ7lBnnqpXosPxEy5EOw+yjCOO8IgMQZMp0PEfRajY5FGKshT3bm1lVzcKytq4rEbgBwd0cOFqGvk6bIcWEpeboTgiKEGuG8McMCIXEwjkO4hB6adLZ1RYdmNI6S0O8Km4L5+rmrEBuety6tBblxGPyOxMqtxiuaeW7lTTzzfH9Le1574pHvrd7T73TFJc0nvqSTGo+W7+cUmvewnCiCm5Nt9Y0EFAABo7GeDgkBwLCzpJpGKbAAKDmxRmChCEjgoqvgv+mvWpW0Rhmkpwxc5exZmBjpMF6wudajFXyoLrKU+B6SmQ6cvEGBgUu6kqps6y6otTwLWflQJgKEtGlnqsK+YbXY5BfFfTNhQwdNW1McHBltMik0Ri8ukeNqw7kvjNeP3834uS+EvvDGUSikIoZA+sNZOyzePxWcjMBNehrtLqlsYxe5LaaCKbmEbtWtUuePyzC7Kr2P7wy/f/vHv5WP2J4BLQogpuTbbWNBAYAANHY0AMDBOBX7OopEYpsAA4OcFGYKC4SMCiq+C76a9albRGGPIvhz7FFxuYCmmwXTC51iM1ai6lVTFIAikl8SlTCDAwIXdT9SKdZc0GQC8lakjUtZezWOymWz8OQhgLSoUFhCY0eV5oKw9DTrug9+41ILsOwmH6r/N3lleMT8NwmboKOYnGWzrToZgqHnscOvLOOTHIGfapdoKW/8XmqWNTVNZqu3P7y1jq/vKvfqa7fw/Kz39b5vCxzVrL+3+hWBAgApSy7WtEMQSVKoAY69GUAAQDrQObJUIFSDIQHJbBoNQFjeIdbAIrpB2rgmlHduyPIVMlrFGnvyJTkaQiC79vW6zB7bdAIxMTJnIm1p76FVgKmLDVQMQVp0qjz+q2NYkcIaHDMVc6iVODHBwmIMMZAsZ43JR5oINeJuy//vSAD4AB2JH0Ot4wu7Eqnodbxht1mEzT6zh7brwKKm1nD22/7LpsollG0aMUUBsoR/Ynaa3TwpS+5flGde3EJZN50dHYp4a+cxd7LtS7Z+Kcu4S2ty5E72sce7mM8ZvE7R/mGe7Ak4IAZf//////////////////////////////////////////////////////9AAApOy3WtELsSVJQAx1+DAxXa0DnStCBUgqEByewaDS94/iHWwCLKNc9cIis/jzKQqZLWHGhwcLTn0JBdt+2xqfd+otgwIWhNKCjSX7kibiu2bvgkLAOKhymrJFbGEJ8S6EwLDEIaeCIIHOQ7i8lTM/lyRuU296ci93Iha8J1y27OltyWGKDuXMy7F13XpbUxVprEC/VztxvDsji/2Jdr6lN+p3Cr8MyrdyV91zWt25/Cbl89veu91//rn/z9/nz+VcAEUyCS0ppdrY0FerWTRPv0ewjQ62ZH6B7lqomAwnTTlxS0PZAg2v6P3C66TUegwhSG7QQjPTNtLqQxp0K9uOXL9Vni22sWUYx6aRavAgCCdryYTJV0ntMX9FIA/EOkVhms5iEuHrFjYkeqmR+sqOAuW1RJWO3wj5iPVKpXqGFwPKrJBjMDG7Vadve7LIoWNcs8KdHo9dQVV5f3OsmUOvPHfVxHprO9XhY1mn/35briqykXaNvjABLSllutbRS5UuaScLo+BDxCWBHxIdnaSpkQIDacDAgIt+QDI1fR+4WrHhR6Ckpxa6qo6sCLL9QK7zoS+20i1Nx1bCd7KIdWemyudvEwGHxptnVb1PMKHqpQHAYygimCeY/A6hNxS9OSqTR3qU60kfq+gzEfol8XdqP2C/ZUIMQvT81EJZqw7KtjgT5ix1iHPDlhP3OPuFEg4ozuDVs/m3EkKNHrN/bbO83Atr7+8a+d/2vJJRKAGXZ9f1GQUm25LdbGkmCgiHAkwHRAIDPofmdGSYyc6H4hK25ufJQfqljBf0uw8tM/QkP9pzyes4KUy1JyRLRhViX1LM4z4DTa/CTuBToUSokzJQ836vTbESoyDtOo61AukSUDQSw7H70oTlYywueNR28yE4cEaGnn7PeXkBORiesT/+9IAPgAG90fUa3h67L/KGo1vD22XkSdNTeMNuxIrKam8YbakkR7Io0MVri+syxkU9VrEzKH2SDOlvfEGLd89cdQ6xIMa987fXjutnlkjoNC5hosYdZ3Lydn0HtX///////////////////////////////////////////////////////7IKTbclutjSR9QRDASYHqgUBnyEBM+LExk5x0BEZe3dz4JBeqWGC7pdh5aZ+hI/4pfyKs1lAgtS9ImAwq9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PWpStx2mFmJslfpMsoC52iwlly35cl4biTT+v4VR2uwQQlHGJI4YZ2RGL9lMYJqLK200lPzNW2ivMQ4ygs9QqZKWpISF/V9jyUSlMFKQnI0zJ3pSw2WxbOxel2UaiGNbOM81RP5YzmKletlep7tNLalNrlyzzmNeN2Oy7LU5xo28rSQeoVoAJbcsu20iBECD9FRBEK/iCSDWF8RcRADrTb/ByRotSIAlCBKJMyAU6uUMhVVPXTtESVYZh40qVWO0tsxTj8WR3JitSlYyTDytcLS8NAa4/soKg7OW6Dph0lSN/GviSjFaWYJqY62VO5V8zK3vQlvtBDiAECTJDKwpIPlLVGyZNxpM5TNWmxpW6XU6wsIjUbqRjuU9KJuYtSGtMWH8lFyUUkRpMqKvuYq37mqXO3Uu51r81MV72Rt8ec8Zcs/3xFSEAFpyOW2toIwQTQDuSUWMTJHU4aloEpAoCPu6q5cO2FixxZtSHy3qo8KghTS9pBMtHqZQmNB3SmY7FradsDNCmmfm5mtqrJX0+UOmiUWk7/PBDNpwy0cQ9/UYZyG2CFmnerOjB89WYONBmICROdBqDwsPRqkr+qnjEVtP//vSAD4ACHJO0es4w26yyno9Zxht1lkdQ6znC7qwIWg1jOF35HJBWl2Nqvh3PGxutQ453sZ3kzlvOm/9dszNi1/Z/d/C3uvnc7lds471hz9Z7tZVMtDLImZqv//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////gAAacjltraCLEF3CVQmCxiZJGkzUyEYAGEg1yU8ladrLEliVZiHy1qk/pAuuz2kD0z+EyKAaDu6aEs2vpOw8x6oxk4QrdSOQ3j9PITViHpcypomNG1ssnOZvyljqyrAAQQND8Avtk3ZlY8W00ZTKw1GJrBqDVH1THmn4vvpnYlVNVqfhT9rY1qkd/X0tnHu+buaw1leq8y5ew1/LVTmqnN1qKrj/NZYd/X4f+HP53HV33F2WSUm7Jda0QoxuoK4GOA68fGqRpNrbdS3Y8jLpSWVabivkBAq9zjIqJA2a0C9kXvjIxwhIVU8ZRCcyvcJQk8tyGHNVltm6MBxRhQFMtafU6OM1aIfYc764LSOImaVwQqYu7m1xHZZMqetlKG0EtObnDtNTpbpQ2a6nr9FQrSm6HB52StpDsVwt3YfsZXblfL6aD7VvG72XVavP7b3jrWq9nDe6HdJjdxq/XHop+Rzu8wx/BhAEpuyWyJEJYTNQd4DnRehFmpBv+vkElRJtVTEFWrioqZA6NNuHRGU61tIwCAQ/Tjph3kBA1C/ohCY5K5UQkJBYQy6k1QqHnbcNxRVAxsU2iyhhlC0CvKofZpF2ujRo/GmHKYwXOtGdG/ZjKg1qmjs7nmytUNeXuThdpYCs1a9t+aSUyHHLO3e1lhcs913WsLHd4brZaqdt5f9fC9xORCsmhlmu/wIGY2NdkLGUU7bbbdY0QoRnwZUIhG5wAK4IDoqtsysSUNZhYADB0o32gELhqbU7xGdPAFx0iJW5PXS0SfdZyGWJMXU0DCEaZfgp0IRduhZkPQQ16CKWStfY1nDDiF5YyztLxUkPSOUAwFR82yQO4EWdB3YLwlKQb14OzXntZYV57e7v/+9IAPgAITkZQ6znC7rOqCh1nOG2WCUU7rGXtssknp/WMvbd2O2MZic7am6Tt6rRa5lPzN/C/Sc5Vx7R6w/n/3v5/3D8uUnZ6F2rsMO57/fjv///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////9lFKW223WtEKIX8BlpCxmboCugcNDr1gRVRtsyjQc2lHAUEiEVIqXvEaFrwYPEPK1pFEyzSl8Ya4ywmEhtLQwhmaZyR0G1lMpCh0DQY+1aBeOGndK5pxC4LFYCUoXZXooACxsbzRoPjFaUOzBlLtGuOyBHlr8D0kRlj8VmqPxFYm8MYr0ljPszFMsdwdd+cp61+ewps9VLms/q75v9a1vLu87/e/j3X4a1+P4f/83+uXKSylMAEuSSSWNEAipDlISkHgRt9wg6hLOIUhgRTfxZCgokGw9bpZQMPd9mZ6tSeQszGA5VlFzOTDG5G/RACyWnQIGCaTC6hSCtqUKPky0oppQsLfpGlhJFhDCYIJnWSAG2dSfGaIud6cE/BoHicRXNaLZDtFihv2qka7+aFCe6exYbfiCtTR4dIC02TSruedMZYFJGetrfu9oF8fMTV7W97yvvilL2k+7b19f5vjf17TVDlMkpOSWS2RIgmJDFIQ0GqQ+4YLGViVI8wMMTDjDdEeUa3DasgkEg4fes5UotOrBjCb/T0PmQWLF5SpJVmsrVmAI6kc3eTpzoU/xa6as3y5MPRBn4jiobDOOpEtJ7HlFYitC16bkWOBnXZxolHsC5J0q7URS+kUWrEdDM1ilUahW6KlN3b40Bxvamo0JupCYFZS88dnfzxKRJPe7PTeaQcz7pdsntLqemcUvfWL5jwmMMgwQZJbctsusiRCLDXpISvCRrvSgh1EBKEoODnSYl9Y2QKjU0XUUHTQgpzFhQmiu31gVSuUkNmKkuOrL2vPlUZUOhyl/WFlzJ98VhT8JVjddrycUrmEdzbVDEkRpukJPsrFZQmbZAXSvOldaYldZ2zKiRiW2WKzk9Ml61qluUf/70gA+AAg4UNBrOXturilp/WMvbdbNU0Gs5e260SPoNZ1hd2nTxqVbU/7rOX3p8fWb1xG3l9EfQ49d41jEJvd42+iWtDtGviPS+sfPzj5riuvKqXSpGf////////////////////////////////////////////////////////////////////////////////////////////////////////////////////9gBNySS2yJEEyF1UBKxGmNVCXqMq7g5ctKMtxf8cbGvn7Z4h+hVBzkiXleFYjo2E1XM9xEunf9xntpWVDJLYX5T9BhEP2XZA5sDw68zzyGMKKmW2IUboO1D0CcRDHb4n6QhLbkS19U5mpdnohbWvIcozJVDWeqNTzjNGcWmGyKZWSVli1mWnsaHl7A1iJTFaMVp6+7++Kwuzwnjtq0+tisbUlM3+4Wa3GlBQJ2qscySm3b7tZGiESZdSGLmjROFQY4UybunMLkVhIiYWwQUIV9Sw6WAFKkuaAIzUvf5pQgTLequQIlKENSquWhe1ryZQUFbg7tZDij42hKADhmvM4W2v1+35RlIZJiBs6zdLq+P6IhL2Arlw2wp2JZyrWFUq5iO5/lG5ULnGmlT0Z8sOCYZE8nl5hYXKA8Xlc0uDczJJsjJWzJBpetrZ14tM7i2zWmLXiQcZx9fFsVr84x/jPpm+MS4rZJTbt22siRBEDLqQx80IIoVBjhVJw5WYXYrKREYWtQUFKSpX5IACNyfMoDH6fb/TZAFT5hbYSdYxKBmXmaFp8IfJHAwbQK5jpADVgVQIWBBnGbxabySh2BQa4asD0kpzeVSmaiVuQzVrWUppH7kUJ7Bkrj9JLn+n4OxpJTD1JPv/KI1Vn+wVZn7+HNWq/L9HVy/tythfoP/P8rfL3LnbNzP71rO1evdxr4RsMXXRojTeAWxfRlguS37WyJEJALcco4Fm7hgCixS0RLtDQ4NfcxO0wgzNQaI6S0DAAVURWe0FSN85aPYQGCqW2LdHi2nunFCTBEYs7j/EU6qasLFguGySMTSCKlfKngq7Z4Do+kgdiimLyEPRoPyE00co1q2AbD6mhWkqIuLpcXoR0gFg4O//vSAD4ACWFV0Gs5Y2yt6eoNZyxt1MUfP63hi7p+Iih1rLF3FioyoZE7LW+zy6//dl6N3Jo8xR6F6tbPLGGpOKP2Z6rrM2yX9v09fb9m/0/3/N53rz7P//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////+ywHJbtrZGiEmFeOUcCzohgCqRG8nnA6MjK2rJ2mIKZqTGH2YAYAieiX0CmsA2z/rDqZhxMaa0frJddoUCg0h2m0tFCbO0kWvCEeD3JsocoZg626XKWoDtlhaN4xyJBKiH4eCAZKSuSCU+LGFJqoR1Go4dahPGTxxUcL0CA5NkYeNRnRNsVsqgoaVzl5WTnqC4cWPaU+YUzEGRWmk3sx87jFM7fntt012YUESzjAJhguS3W2yJEDwQsduhgKgcsFBguvMxgYkkrAxaAl1GlKFLEA1fRQYWuvJVzfM4AVmjLpY4DBq7LPu2AFV4YcdhMQZ4+71Odg+ODsxlMC46tg3J7h8nPtgDor1ZOiensvFR4W1J8dlNZhaVEBGdGY/FY2JRKajTFUSS4mmTKCBczWq9f2fVmvM3W0dhr1Vrse/zcP+zZ29X9S+kRyZg1hlGclBWzk1uMspy2666RohIBl6+DE9D5AhIOnuahU9UNhBUFPU+VaVWmPS4BdoaHZExZ+ncBRT4OS9hbld6gcrCgUGwE7bMb68F1xJocKdNm8R8pjmPkiuZVMgOCkmgsFoli0VCUcKHUiizJ4d5C+veedi1VAvOnXaL15VYSoS+zlPXtr2F9ErKhlKvemKsLzUTvfWnxX/7MNwxUbDiTDK/v/rHSaTGOGSUrv/tta2glyyJfJqbpfmNuIQn0FIIWsTCGGkIALCAc1GJzGMNIhkgeiwUBaoDTvqBAKaGhypEb2cMEsxduT2xZeirpDHGiOxAsrjzAJDeUwcSBcAHA4wMmyhMBey5KSEYaGCgrKkQBAFOFjoeFLHRgHH13FkyAPichNj/+9IAPgAH1FXR61hLbKeJej1rDG3XdVdNrGXtswmq6bWMvbalaCBBNKWt5Keq3BW7yrSu51FW/JK6hPLWZax8FZ/fUZ7cXQY8qnnuo5t/W//////////////////////////////////////////////////////////////////////////////////////////////////////////////2SUrv/tta2gjSvJZJq75emNuoMoS7EELWJhjKSUEIBQGaTDX4yhtIDHGkQCYLuCEMOGIyuDVBWwv+1hWm5KVPuRMqcNSjEobEriWv80prEHQywBoFmZMy1wBx3VD8lx1gt+vtAfsxHRghupkJNpEPzMpn1CXdkmFsvtHQ4k+ezLfTMhbXtUxu1K0rE/e2YoZhuuZbTXlm3dW9EOn/2bdfkAo3LhsIyWiklu////7SIFBEKHbPlykcUZGA/MNfsLOIoPi19GNBEiOKkmciIhaUgFMQJqigJUphTpl/gabL0KILfV9IjK1QyZiYADi8PRKBZGxNY8WYUoas6w0Nty4KhDSSHpFUZ2ISfyyuWtAHeTpSpRXtZ0H+TBxSTEZKMdHRHmoijiTh+nkzs67Trm/T1XDEZsms/b3OFEj6Z2XR7MsaA/jZfd4xvqss+9OUSJejh5n6j+PnddX1j/53vf+PnPzDzSS3f///9pGChBfh2z9cpPFGRgPy7X7C0CaD1s7KBjIAkGIyTSXFCXjIBzGCbgmKS2uXBpcILlu+gMgl5YKdFsCxHsVOFBWJv8+EZ3A6v6z9KCuM4ENQoWw/SNq1NsB9pJcsyARS2nEifaYOVXnuaGiMPUMPNxPdEqlGnSfqGPSbuJ5oaYxmw2dnfH/LOrGV5BcmWEyKnd2mLqE57Xoe4DlmKwqx7iLHXN268OE/xEkj2+4d9e97bq8vXHiv9zT1w3zbYISd1221rZCmhIBU6C24so77ohFwoINcFCifMcgFF0S9Zh8KqBym5FoSijg33lTWYuGRHuNSYJFWlRV5G5IEn0YIhQrXI20SuirlTiUb9rLYqow8tSGahmsQsKJSx3pEu1FYu1WvsyqnQ2dvOWKS6Ge6tbG9GsmoqomcEv/70gA+AAeRVdFrWHtss6kaLWsPbddlV0/s4e2y+6sp/Zw9tkOBTnIhh9nO2x5sv7IbFgXZ2x3CtDgNjBer6Q5H0CE920wWCS+2B5drYYUPeYWfj+3zjOt5xjX3v/G9/WYf//////////////////////////////////////////////////////////////////////////+wQk5rdtrWyEwCoBYwFuRZB33RCMBQQa4KFlLZI8KLqEVinBqgcZeSA0mo6MZeVr0nRFRghSxLqpmCvEqkpF/k9EJCvmwMoU2pGuOUgfSKPxVPFyZH36lNAVClgK1ra10njtUZKTqQpdG/HS6/K1qAz0yzNbc5rLCex+GLhgkWnjO4yySOMB/V87ds0RigQKMtnjleA+PyNR4X3DPDZYzlfc0KPZmfK2LK2xiv4LdJbWd50+0ERNFV3j//aRgSBR+ck8ax5mXqOAlNZUcNGhd1psAQgPHajBAODSMhSgCWw2w4RyHATaaxE5QFp7TGANUX1GluP0VSMOi8TYytdy21WRSudYTkVO+r7HUyJwvZwLJ7qqyublaqWI5yWrR1HYiVYzQEYbhdx1uCbNnCveItjWHjCrVjEeG9bsUpFuxt0qw4sMW0jL4uJHu39HB0eb60OLbV1FDntaj5xgQHsP5znWLZkjYnxX7hS7zvWPGwgiJoqu8f/7SNCQKCzknnaPOy9RwEprKjhp0KbUzRAhAeO1GABItZwUmAltdyiWwoR/URiKS7XLvSBhDZHHVA+AqJc0P0tCrVB7DWUYsecdBIueBZ4eUzxC3TWrVy1IeoHitSDOW1Q7I1BXlhEPdDDL3EuXdyirgt9Yq6V7k+OSMed269IrYv0pWe0GDRei2fwNPcLbA6fLcbUHDI+tSNaHiBBYdWdatmBPqFTU9sYpe2b6xBxie9IPvY5uqy9qyABKbb7fWxoF+QAAaWZyiLF34UPA2IMBrvBAoWGNbZ8Kgi6bBSA4NGVNBUNKUua5BUOCKBCUBWD6GV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"></audio>\n\t  <!--\n\t  Title: Small Crowd Applause\n\t  About: A small crowd in a theater applauding for a few seconds.\n\t  License: Attribution 3.0 | Recorded by Yannick Lemieux\n\t  http://soundbible.com/1964-Small-Crowd-Applause.html\n\t  -->\n\t  <audio class="chuckbob__success-sound" src="data:audio/mp3;base64,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"></audio>\n<style>\n .chuckbob {\n   z-index: 999999;\n   background-color: rgba(70,13,13,0.73);\n   color: rgb(245, 207, 15);\n   border: 10px solid rgb(119, 50, 12);\n   border-radius: 5px;\n   padding: 10px;\n   position: absolute;\n   top: 0;\n   left: 0;\n   max-width: 500px;\n   min-width: 390px;\n   font-family: monospace;\n }\n .chuckbob button {\n   font-family: monospace;\n   border-radius: 5px;\n   background-color: rgb(119, 50, 12);\n   color: #fff;\n   padding: 5px;\n }\n\n .chuckbob button[disabled] {\n   opacity: 0.5;\n }\n\n .chuckbob a {\n  color: rgb(245, 207, 15);\n  font-family: monospace;\n  padding: 10px;\n }\n\n .chuckbob fieldset {\n   border: 2px solid rgb(252, 120, 0);\n   margin: 4px;\n   border-radius: 8px;\n }\n\n .chuckbob--hidden {\n  display: none;\n }\n\n .chuckbob .chuckbox__exit-controls {\n   border: 0;\n }\n\n .chuckbob__result {\n   color: white;\n   padding: 4px;\n }\n\n .chuckbob__result--ok {\n   background-color: rgb(3, 150, 15);\n }\n\n .chuckbob__result--success {\n   background-color: rgb(173, 6, 6);\n }\n\n .chuckbob__test-log {\n   bottom: 0;\n   width: 100%;\n   height: 200px;\n   background-color: rgb(119, 50, 12);\n   color: rgb(230, 189, 189);\n   overflow-y: scroll;\n   font: monospace\n   margin-bottom:\n }\n\n.chuckbob__toggler {\n  float : right;\n}\n\n .chuckbob__tests-list {\n   margin: 5px 20px;\n   display: block;\n }\n\n</style>\n  </div>\n\t</div>\n  ';});
+    return function nextTick(fn) {
+        setTimeout(fn, 0);
+    };
+})();
 
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+
+function noop() {}
+
+process.on = noop;
+process.addListener = noop;
+process.once = noop;
+process.off = noop;
+process.removeListener = noop;
+process.removeAllListeners = noop;
+process.emit = noop;
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+}
+
+// TODO(shtylman)
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+
+},{}],7:[function(require,module,exports){
 /*!
  * jQuery JavaScript Library v1.11.0
  * http://jquery.com/
@@ -15000,246 +13372,2105 @@ return jQuery;
 
 }));
 
-define('script/draggable.js',[
-	'jquery'
-], function (jQuery) {
-	// http://www.coderholic.com/jquery-draggable-implementation/
-	// Make an element draggable using jQuery
-	var makeDraggable = function(element) {
-		element = jQuery(element);
+},{}],8:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
 
-		// Move the element by the amount of change in the mouse position
-		var move = function(event) {
-			if(element.data('mouseMove')) {
-				var changeX = event.clientX - element.data('mouseX');
-				var changeY = event.clientY - element.data('mouseY');
+(function(define) { 'use strict';
+define(function (require) {
 
-				var newX = parseInt(element.css('left')) + changeX;
-				var newY = parseInt(element.css('top')) + changeY;
+	var makePromise = require('./makePromise');
+	var Scheduler = require('./scheduler');
+	var async = require('./async');
 
-				element.css('left', newX);
-				element.css('top', newY);
+	return makePromise({
+		scheduler: new Scheduler(async)
+	});
 
-				element.data('mouseX', event.clientX);
-				element.data('mouseY', event.clientY);
+});
+})(typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); });
+
+},{"./async":11,"./makePromise":21,"./scheduler":22}],9:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+	/**
+	 * Circular queue
+	 * @param {number} capacityPow2 power of 2 to which this queue's capacity
+	 *  will be set initially. eg when capacityPow2 == 3, queue capacity
+	 *  will be 8.
+	 * @constructor
+	 */
+	function Queue(capacityPow2) {
+		this.head = this.tail = this.length = 0;
+		this.buffer = new Array(1 << capacityPow2);
+	}
+
+	Queue.prototype.push = function(x) {
+		if(this.length === this.buffer.length) {
+			this._ensureCapacity(this.length * 2);
+		}
+
+		this.buffer[this.tail] = x;
+		this.tail = (this.tail + 1) & (this.buffer.length - 1);
+		++this.length;
+		return this.length;
+	};
+
+	Queue.prototype.shift = function() {
+		var x = this.buffer[this.head];
+		this.buffer[this.head] = void 0;
+		this.head = (this.head + 1) & (this.buffer.length - 1);
+		--this.length;
+		return x;
+	};
+
+	Queue.prototype._ensureCapacity = function(capacity) {
+		var head = this.head;
+		var buffer = this.buffer;
+		var newBuffer = new Array(capacity);
+		var i = 0;
+		var len;
+
+		if(head === 0) {
+			len = this.length;
+			for(; i<len; ++i) {
+				newBuffer[i] = buffer[i];
+			}
+		} else {
+			capacity = buffer.length;
+			len = this.tail;
+			for(; head<capacity; ++i, ++head) {
+				newBuffer[i] = buffer[head];
+			}
+
+			for(head=0; head<len; ++i, ++head) {
+				newBuffer[i] = buffer[head];
 			}
 		}
 
-		element.mousedown(function(event) {
-			element.data('mouseMove', true);
-			element.data('mouseX', event.clientX);
-			element.data('mouseY', event.clientY);
-		});
-
-		element.parents(':last').mouseup(function() {
-			element.data('mouseMove', false);
-		});
-
-		element.mouseout(move);
-		element.mousemove(move);
+		this.buffer = newBuffer;
+		this.head = 0;
+		this.tail = this.length;
 	};
-	return makeDraggable;
+
+	return Queue;
+
 });
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
 
-/*global window, document */
-/*global define */
+},{}],10:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
 
-define('script/gui',[
-	'../bower_components/requirejs-text/text!script/gui-template.html!strip',
-	'jquery',
-	'script/draggable.js'
-], function (html, $, makeDraggable) {
-	
+(function(define) { 'use strict';
+define(function() {
 
-	var $content,
-		gui,
-		controller,
-		testNames,
-		hide = function () {
-			$content.remove();
-		},
-		callChuckbob = function (methodName) {
-			return function (optArg) {
-				if (controller && controller[methodName]) {
-					controller[methodName](optArg);
-				}
-			};
-		},
-		singleTestCallback = callChuckbob('runTestByName'),
-		singleTestClick = function () {
-			var val = $('.chuckbob__tests-list :selected').text();
-			if (val && val !== "") {
-				singleTestCallback(val);
+	/**
+	 * Custom error type for promises rejected by promise.timeout
+	 * @param {string} message
+	 * @constructor
+	 */
+	function TimeoutError (message) {
+		Error.call(this);
+		this.message = message;
+		this.name = TimeoutError.name;
+		if (typeof Error.captureStackTrace === 'function') {
+			Error.captureStackTrace(this, TimeoutError);
+		}
+	}
+
+	TimeoutError.prototype = Object.create(Error.prototype);
+	TimeoutError.prototype.constructor = TimeoutError;
+
+	return TimeoutError;
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+},{}],11:[function(require,module,exports){
+(function (process){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function(require) {
+
+	// Sniff "best" async scheduling option
+	// Prefer process.nextTick or MutationObserver, then check for
+	// vertx and finally fall back to setTimeout
+
+	/*jshint maxcomplexity:6*/
+	/*global process,document,setTimeout,MutationObserver,WebKitMutationObserver*/
+	var nextTick, MutationObs;
+
+	if (typeof process !== 'undefined' && process !== null &&
+		typeof process.nextTick === 'function') {
+		nextTick = function(f) {
+			process.nextTick(f);
+		};
+
+	} else if (MutationObs =
+		(typeof MutationObserver === 'function' && MutationObserver) ||
+		(typeof WebKitMutationObserver === 'function' && WebKitMutationObserver)) {
+		nextTick = (function (document, MutationObserver) {
+			var scheduled;
+			var el = document.createElement('div');
+			var o = new MutationObserver(run);
+			o.observe(el, { attributes: true });
+
+			function run() {
+				var f = scheduled;
+				scheduled = void 0;
+				f();
 			}
-		},
-		updateLog = function () {
-			var textLog = controller.getLogText(),
-				$logArea;
 
-			$logArea = $('.chuckbob__test-log', $content);
-			$logArea.text(textLog);
+			return function (f) {
+				scheduled = f;
+				el.setAttribute('class', 'x');
+			};
+		}(document, MutationObs));
 
-			//Scroll down:
+	} else {
+		nextTick = (function(cjsRequire) {
 			try {
-				$logArea.scrollTop(
-					$logArea[0].scrollHeight - $logArea.height()
-				);
-			} catch(e) {} // If not shown yet
-		},
-		update =  function () {
-			var isSingleStepping = controller.getIsSingleStepping();
-			$('.chuckbob__single-step').text(isSingleStepping ? 'Off' : 'On');
-			$('.chuckbob__step').prop('disabled', !isSingleStepping);
-			$('.chuckbob__resume').prop('disabled', !isSingleStepping);
-			updateLog();
-		},
-		singleStep = function () {
-			controller.toggleSingleStepping();
-		},
-		bindEvents = function () {
-			$('.chuckbob__run-button').click(callChuckbob('runAllTests'));
-			$('.chuckbob__restart-button').click(
-				callChuckbob('restartFromOriginalUrl'));
-			$('.chuckbob__exit-button').click(
-				callChuckbob('restartFromOriginalUrlNoAutostart'));
-			$('.chuckbob__abort-button').click(hide);
-			$('.chuckbob__run-single-button').click(singleTestClick);
+				// vert.x 1.x || 2.x
+				return cjsRequire('vertx').runOnLoop || cjsRequire('vertx').runOnContext;
+			} catch (ignore) {}
 
-			$('.chuckbob__step').click(callChuckbob('step'));
-			$('.chuckbob__resume').click(callChuckbob('resume'));
-			$('.chuckbob__single-step').click(singleStep);
-		},
-		addToggler = function () {
-			var $el = $('.chuckbob__toggler', $content);
-			$el.click(function(event) {
-				event.preventDefault();
-				$('.chuckbob__container').toggleClass('chuckbob--hidden');
-				$el.html() === 'Hide' ? $el.html('Show') : $el.html('Hide');
+			// capture setTimeout to avoid being caught by fake timers
+			// used in time based tests
+			var capturedSetTimeout = setTimeout;
+			return function (t) {
+				capturedSetTimeout(t, 0);
+			};
+		}(require));
+	}
+
+	return nextTick;
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
+
+}).call(this,require("FWaASH"))
+},{"FWaASH":6}],12:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function array(Promise) {
+
+		var arrayMap = Array.prototype.map;
+		var arrayReduce = Array.prototype.reduce;
+		var arrayReduceRight = Array.prototype.reduceRight;
+		var arrayForEach = Array.prototype.forEach;
+
+		var toPromise = Promise.resolve;
+		var all = Promise.all;
+
+		// Additional array combinators
+
+		Promise.any = any;
+		Promise.some = some;
+		Promise.settle = settle;
+
+		Promise.map = map;
+		Promise.reduce = reduce;
+		Promise.reduceRight = reduceRight;
+
+		/**
+		 * When this promise fulfills with an array, do
+		 * onFulfilled.apply(void 0, array)
+		 * @param (function) onFulfilled function to apply
+		 * @returns {Promise} promise for the result of applying onFulfilled
+		 */
+		Promise.prototype.spread = function(onFulfilled) {
+			return this.then(all).then(function(array) {
+				return onFulfilled.apply(void 0, array);
 			});
-		},
-		renderTests = function () {
-			if ($content && testNames) {
-				var $tests = $('.chuckbob__tests-list', $content);
-				$tests.empty();
-				$.each(testNames, function (idx, testName) {
-					$('<option/>').text(testName).appendTo($tests);
+		};
+
+		return Promise;
+
+		/**
+		 * One-winner competitive race.
+		 * Return a promise that will fulfill when one of the promises
+		 * in the input array fulfills, or will reject when all promises
+		 * have rejected.
+		 * @param {array} promises
+		 * @returns {Promise} promise for the first fulfilled value
+		 */
+		function any(promises) {
+			return new Promise(function(resolve, reject) {
+				var pending = 0;
+				var errors = [];
+
+				arrayForEach.call(promises, function(p) {
+					++pending;
+					toPromise(p).then(resolve, handleReject);
+				});
+
+				if(pending === 0) {
+					resolve();
+				}
+
+				function handleReject(e) {
+					errors.push(e);
+					if(--pending === 0) {
+						reject(errors);
+					}
+				}
+			});
+		}
+
+		/**
+		 * N-winner competitive race
+		 * Return a promise that will fulfill when n input promises have
+		 * fulfilled, or will reject when it becomes impossible for n
+		 * input promises to fulfill (ie when promises.length - n + 1
+		 * have rejected)
+		 * @param {array} promises
+		 * @param {number} n
+		 * @returns {Promise} promise for the earliest n fulfillment values
+		 *
+		 * @deprecated
+		 */
+		function some(promises, n) {
+			return new Promise(function(resolve, reject, notify) {
+				var nFulfill = 0;
+				var nReject;
+				var results = [];
+				var errors = [];
+
+				arrayForEach.call(promises, function(p) {
+					++nFulfill;
+					toPromise(p).then(handleResolve, handleReject, notify);
+				});
+
+				n = Math.max(n, 0);
+				nReject = (nFulfill - n + 1);
+				nFulfill = Math.min(n, nFulfill);
+
+				if(nFulfill === 0) {
+					resolve(results);
+					return;
+				}
+
+				function handleResolve(x) {
+					if(nFulfill > 0) {
+						--nFulfill;
+						results.push(x);
+
+						if(nFulfill === 0) {
+							resolve(results);
+						}
+					}
+				}
+
+				function handleReject(e) {
+					if(nReject > 0) {
+						--nReject;
+						errors.push(e);
+
+						if(nReject === 0) {
+							reject(errors);
+						}
+					}
+				}
+			});
+		}
+
+		/**
+		 * Apply f to the value of each promise in a list of promises
+		 * and return a new list containing the results.
+		 * @param {array} promises
+		 * @param {function} f
+		 * @param {function} fallback
+		 * @returns {Promise}
+		 */
+		function map(promises, f, fallback) {
+			return all(arrayMap.call(promises, function(x) {
+				return toPromise(x).then(f, fallback);
+			}));
+		}
+
+		/**
+		 * Return a promise that will always fulfill with an array containing
+		 * the outcome states of all input promises.  The returned promise
+		 * will never reject.
+		 * @param {array} promises
+		 * @returns {Promise}
+		 */
+		function settle(promises) {
+			return all(arrayMap.call(promises, function(p) {
+				p = toPromise(p);
+				return p.then(inspect, inspect);
+
+				function inspect() {
+					return p.inspect();
+				}
+			}));
+		}
+
+		function reduce(promises, f) {
+			return arguments.length > 2
+				? arrayReduce.call(promises, reducer, arguments[2])
+				: arrayReduce.call(promises, reducer);
+
+			function reducer(result, x, i) {
+				return toPromise(result).then(function(r) {
+					return toPromise(x).then(function(x) {
+						return f(r, x, i);
+					});
 				});
 			}
-		},
-		render = function () {
-			if (!$content) {
-				$content = $(html);
-				$content.appendTo('body');
-				bindEvents();
-				renderTests();
-				addToggler();
-				makeDraggable($content);
-			}
-			update();
-		},
-		showResult = function (options) {
-			var opt = options || {},
-				ok = opt.ok === true,
-				failure = opt.ok === false,
-				text = '';
-
-			if (ok) {
-				text = 'Success';
-			}
-			if (failure) {
-				text = 'Failed';
-			}
-			render();
-			if (failure) {
-				$(".chuckbob__fail-sound").get(0).play();
-			}
-			if (ok) {
-				$(".chuckbob__success-sound").get(0).play();
-			}
-			$('.chuckbob__result')
-				.text(text)
-				.toggleClass('chuckbob__result--ok', ok)
-				.toggleClass('chuckbob__result--failure', failure);
-
-			updateLog(opt.logLines);
-		},
-		setTests = function (tests) {
-			testNames = tests;
-			renderTests();
-		},
-		nop = function () {};
-
-	gui = {
-		setTests: setTests,
-		show: showResult,
-		showResult: showResult,
-		hide: hide,
-		update: update,
-		registerForCallbacks: function (obj) {
-			controller = obj;
 		}
 
+		function reduceRight(promises, f) {
+			return arguments.length > 2
+				? arrayReduceRight.call(promises, reducer, arguments[2])
+				: arrayReduceRight.call(promises, reducer);
+
+			function reducer(result, x, i) {
+				return toPromise(result).then(function(r) {
+					return toPromise(x).then(function(x) {
+						return f(r, x, i);
+					});
+				});
+			}
+		}
 	};
 
-	return gui;
+
 });
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
 
-/*global window, document */
-/*global require, define */
+},{}],13:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
 
-define('script/phantom-reporter',[
-], function () {
-	
-	var nop = function () {},
-		showResult = function (options) {
-			var opt = options || {},
-				ok = opt.ok,
-				logLines = opt.logLines || ['- no log. -'];
-			window.toPhantomFromBob = {
-				ok: ok,
-				logLines: logLines,
-				finished: true
-			};
-		},
-		log = function (string, totalLogLines) {
-			window.toPhantomFromBob = {
-				logLines: totalLogLines
-			};
-		},
-		api = {
-			log: log,
-			setTests: nop,
-			showResult: showResult
+(function(define) { 'use strict';
+define(function() {
+
+	return function flow(Promise) {
+
+		var reject = Promise.reject;
+		var origCatch = Promise.prototype['catch'];
+
+		/**
+		 * Handle the ultimate fulfillment value or rejection reason, and assume
+		 * responsibility for all errors.  If an error propagates out of result
+		 * or handleFatalError, it will be rethrown to the host, resulting in a
+		 * loud stack track on most platforms and a crash on some.
+		 * @param {function?} onResult
+		 * @param {function?} onError
+		 * @returns {undefined}
+		 */
+		Promise.prototype.done = function(onResult, onError) {
+			var h = this._handler;
+			h.when({ resolve: this._maybeFatal, notify: noop, context: this,
+				receiver: h.receiver, fulfilled: onResult, rejected: onError,
+				progress: void 0 });
 		};
-	return api;
-});
 
+		/**
+		 * Add Error-type and predicate matching to catch.  Examples:
+		 * promise.catch(TypeError, handleTypeError)
+		 *   .catch(predicate, handleMatchedErrors)
+		 *   .catch(handleRemainingErrors)
+		 * @param onRejected
+		 * @returns {*}
+		 */
+		Promise.prototype['catch'] = Promise.prototype.otherwise = function(onRejected) {
+			if (arguments.length === 1) {
+				return origCatch.call(this, onRejected);
+			} else {
+				if(typeof onRejected !== 'function') {
+					return this.ensure(rejectInvalidPredicate);
+				}
+
+				return origCatch.call(this, createCatchFilter(arguments[1], onRejected));
+			}
+		};
+
+		/**
+		 * Wraps the provided catch handler, so that it will only be called
+		 * if the predicate evaluates truthy
+		 * @param {?function} handler
+		 * @param {function} predicate
+		 * @returns {function} conditional catch handler
+		 */
+		function createCatchFilter(handler, predicate) {
+			return function(e) {
+				return evaluatePredicate(e, predicate)
+					? handler.call(this, e)
+					: reject(e);
+			};
+		}
+
+		/**
+		 * Ensures that onFulfilledOrRejected will be called regardless of whether
+		 * this promise is fulfilled or rejected.  onFulfilledOrRejected WILL NOT
+		 * receive the promises' value or reason.  Any returned value will be disregarded.
+		 * onFulfilledOrRejected may throw or return a rejected promise to signal
+		 * an additional error.
+		 * @param {function} handler handler to be called regardless of
+		 *  fulfillment or rejection
+		 * @returns {Promise}
+		 */
+		Promise.prototype['finally'] = Promise.prototype.ensure = function(handler) {
+			if(typeof handler !== 'function') {
+				// Optimization: result will not change, return same promise
+				return this;
+			}
+
+			handler = isolate(handler, this);
+			return this.then(handler, handler);
+		};
+
+		/**
+		 * Recover from a failure by returning a defaultValue.  If defaultValue
+		 * is a promise, it's fulfillment value will be used.  If defaultValue is
+		 * a promise that rejects, the returned promise will reject with the
+		 * same reason.
+		 * @param {*} defaultValue
+		 * @returns {Promise} new promise
+		 */
+		Promise.prototype['else'] = Promise.prototype.orElse = function(defaultValue) {
+			return this.then(void 0, function() {
+				return defaultValue;
+			});
+		};
+
+		/**
+		 * Shortcut for .then(function() { return value; })
+		 * @param  {*} value
+		 * @return {Promise} a promise that:
+		 *  - is fulfilled if value is not a promise, or
+		 *  - if value is a promise, will fulfill with its value, or reject
+		 *    with its reason.
+		 */
+		Promise.prototype['yield'] = function(value) {
+			return this.then(function() {
+				return value;
+			});
+		};
+
+		/**
+		 * Runs a side effect when this promise fulfills, without changing the
+		 * fulfillment value.
+		 * @param {function} onFulfilledSideEffect
+		 * @returns {Promise}
+		 */
+		Promise.prototype.tap = function(onFulfilledSideEffect) {
+			return this.then(onFulfilledSideEffect)['yield'](this);
+		};
+
+		return Promise;
+	};
+
+	function rejectInvalidPredicate() {
+		throw new TypeError('catch predicate must be a function');
+	}
+
+	function evaluatePredicate(e, predicate) {
+		return isError(predicate) ? e instanceof predicate : predicate(e);
+	}
+
+	function isError(predicate) {
+		return predicate === Error
+			|| (predicate != null && predicate.prototype instanceof Error);
+	}
+
+	// prevent argument passing to f and ignore return value
+	function isolate(f, x) {
+		return function() {
+			f.call(this);
+			return x;
+		};
+	}
+
+	function noop() {}
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],14:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+/** @author Jeff Escalante */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function fold(Promise) {
+
+		Promise.prototype.fold = function(fn, arg) {
+			var promise = this._beget();
+			this._handler.fold(promise._handler, fn, arg);
+			return promise;
+		};
+
+		return Promise;
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],15:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function inspect(Promise) {
+
+		Promise.prototype.inspect = function() {
+			return this._handler.inspect();
+		};
+
+		return Promise;
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],16:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function generate(Promise) {
+
+		var resolve = Promise.resolve;
+
+		Promise.iterate = iterate;
+		Promise.unfold = unfold;
+
+		return Promise;
+
+		/**
+		 * Generate a (potentially infinite) stream of promised values:
+		 * x, f(x), f(f(x)), etc. until condition(x) returns true
+		 * @param {function} f function to generate a new x from the previous x
+		 * @param {function} condition function that, given the current x, returns
+		 *  truthy when the iterate should stop
+		 * @param {function} handler function to handle the value produced by f
+		 * @param {*|Promise} x starting value, may be a promise
+		 * @return {Promise} the result of the last call to f before
+		 *  condition returns true
+		 */
+		function iterate(f, condition, handler, x) {
+			return unfold(function(x) {
+				return [x, f(x)];
+			}, condition, handler, x);
+		}
+
+		/**
+		 * Generate a (potentially infinite) stream of promised values
+		 * by applying handler(generator(seed)) iteratively until
+		 * condition(seed) returns true.
+		 * @param {function} unspool function that generates a [value, newSeed]
+		 *  given a seed.
+		 * @param {function} condition function that, given the current seed, returns
+		 *  truthy when the unfold should stop
+		 * @param {function} handler function to handle the value produced by unspool
+		 * @param x {*|Promise} starting value, may be a promise
+		 * @return {Promise} the result of the last value produced by unspool before
+		 *  condition returns true
+		 */
+		function unfold(unspool, condition, handler, x) {
+			return resolve(x).then(function(seed) {
+				return resolve(condition(seed)).then(function(done) {
+					return done ? seed : resolve(unspool(seed)).spread(next);
+				});
+			});
+
+			function next(item, newSeed) {
+				return resolve(handler(item)).then(function() {
+					return unfold(unspool, condition, handler, newSeed);
+				});
+			}
+		}
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],17:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function progress(Promise) {
+
+		/**
+		 * Register a progress handler for this promise
+		 * @param {function} onProgress
+		 * @returns {Promise}
+		 */
+		Promise.prototype.progress = function(onProgress) {
+			return this.then(void 0, void 0, onProgress);
+		};
+
+		return Promise;
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],18:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function(require) {
+
+	var timer = require('../timer');
+	var TimeoutError = require('../TimeoutError');
+
+	return function timed(Promise) {
+		/**
+		 * Return a new promise whose fulfillment value is revealed only
+		 * after ms milliseconds
+		 * @param {number} ms milliseconds
+		 * @returns {Promise}
+		 */
+		Promise.prototype.delay = function(ms) {
+			var p = this._beget();
+			var h = p._handler;
+
+			this._handler.map(function delay(x) {
+				timer.set(function() { h.resolve(x); }, ms);
+			}, h);
+
+			return p;
+		};
+
+		/**
+		 * Return a new promise that rejects after ms milliseconds unless
+		 * this promise fulfills earlier, in which case the returned promise
+		 * fulfills with the same value.
+		 * @param {number} ms milliseconds
+		 * @param {Error|*=} reason optional rejection reason to use, defaults
+		 *   to an Error if not provided
+		 * @returns {Promise}
+		 */
+		Promise.prototype.timeout = function(ms, reason) {
+			var hasReason = arguments.length > 1;
+			var p = this._beget();
+			var h = p._handler;
+
+			var t = timer.set(onTimeout, ms);
+
+			this._handler.chain(h,
+				function onFulfill(x) {
+					timer.clear(t);
+					this.resolve(x); // this = p._handler
+				},
+				function onReject(x) {
+					timer.clear(t);
+					this.reject(x); // this = p._handler
+				},
+				h.notify);
+
+			return p;
+
+			function onTimeout() {
+				h.reject(hasReason
+					? reason : new TimeoutError('timed out after ' + ms + 'ms'));
+			}
+		};
+
+		return Promise;
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
+
+},{"../TimeoutError":10,"../timer":23}],19:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function(require) {
+
+	var timer = require('../timer');
+
+	return function unhandledRejection(Promise) {
+		var logError = noop;
+		var logInfo = noop;
+
+		if(typeof console !== 'undefined') {
+			logError = typeof console.error !== 'undefined'
+				? function (e) { console.error(e); }
+				: function (e) { console.log(e); };
+
+			logInfo = typeof console.info !== 'undefined'
+				? function (e) { console.info(e); }
+				: function (e) { console.log(e); };
+		}
+
+		Promise.onPotentiallyUnhandledRejection = function(rejection) {
+			enqueue(report, rejection);
+		};
+
+		Promise.onPotentiallyUnhandledRejectionHandled = function(rejection) {
+			enqueue(unreport, rejection);
+		};
+
+		Promise.onFatalRejection = function(rejection) {
+			enqueue(throwit, rejection.value);
+		};
+
+		var tasks = [];
+		var reported = [];
+		var running = false;
+
+		function report(r) {
+			if(!r.handled) {
+				reported.push(r);
+				logError('Potentially unhandled rejection [' + r.id + '] ' + formatError(r.value));
+			}
+		}
+
+		function unreport(r) {
+			var i = reported.indexOf(r);
+			if(i >= 0) {
+				reported.splice(i, 1);
+				logInfo('Handled previous rejection [' + r.id + '] ' + formatObject(r.value));
+			}
+		}
+
+		function enqueue(f, x) {
+			tasks.push(f, x);
+			if(!running) {
+				running = true;
+				running = timer.set(flush, 0);
+			}
+		}
+
+		function flush() {
+			running = false;
+			while(tasks.length > 0) {
+				tasks.shift()(tasks.shift());
+			}
+		}
+
+		return Promise;
+	};
+
+	function formatError(e) {
+		var s = typeof e === 'object' && e.stack ? e.stack : formatObject(e);
+		return e instanceof Error ? s : s + ' (WARNING: non-Error used)';
+	}
+
+	function formatObject(o) {
+		var s = String(o);
+		if(s === '[object Object]' && typeof JSON !== 'undefined') {
+			s = tryStringify(o, s);
+		}
+		return s;
+	}
+
+	function tryStringify(e, defaultValue) {
+		try {
+			return JSON.stringify(e);
+		} catch(e) {
+			// Ignore. Cannot JSON.stringify e, stick with String(e)
+			return defaultValue;
+		}
+	}
+
+	function throwit(e) {
+		throw e;
+	}
+
+	function noop() {}
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
+
+},{"../timer":23}],20:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function addWith(Promise) {
+		/**
+		 * Returns a promise whose handlers will be called with `this` set to
+		 * the supplied `thisArg`.  Subsequent promises derived from the
+		 * returned promise will also have their handlers called with `thisArg`.
+		 * Calling `with` with undefined or no arguments will return a promise
+		 * whose handlers will again be called in the usual Promises/A+ way (no `this`)
+		 * thus safely undoing any previous `with` in the promise chain.
+		 *
+		 * WARNING: Promises returned from `with`/`withThis` are NOT Promises/A+
+		 * compliant, specifically violating 2.2.5 (http://promisesaplus.com/#point-41)
+		 *
+		 * @param {object} thisArg `this` value for all handlers attached to
+		 *  the returned promise.
+		 * @returns {Promise}
+		 */
+		Promise.prototype['with'] = Promise.prototype.withThis
+			= Promise.prototype._bindContext;
+
+		return Promise;
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+
+},{}],21:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function makePromise(environment) {
+
+		var tasks = environment.scheduler;
+
+		var objectCreate = Object.create ||
+			function(proto) {
+				function Child() {}
+				Child.prototype = proto;
+				return new Child();
+			};
+
+		/**
+		 * Create a promise whose fate is determined by resolver
+		 * @constructor
+		 * @returns {Promise} promise
+		 * @name Promise
+		 */
+		function Promise(resolver, handler) {
+			this._handler = resolver === Handler ? handler : init(resolver);
+		}
+
+		/**
+		 * Run the supplied resolver
+		 * @param resolver
+		 * @returns {makePromise.DeferredHandler}
+		 */
+		function init(resolver) {
+			var handler = new DeferredHandler();
+
+			try {
+				resolver(promiseResolve, promiseReject, promiseNotify);
+			} catch (e) {
+				promiseReject(e);
+			}
+
+			return handler;
+
+			/**
+			 * Transition from pre-resolution state to post-resolution state, notifying
+			 * all listeners of the ultimate fulfillment or rejection
+			 * @param {*} x resolution value
+			 */
+			function promiseResolve (x) {
+				handler.resolve(x);
+			}
+			/**
+			 * Reject this promise with reason, which will be used verbatim
+			 * @param {Error|*} reason rejection reason, strongly suggested
+			 *   to be an Error type
+			 */
+			function promiseReject (reason) {
+				handler.reject(reason);
+			}
+
+			/**
+			 * Issue a progress event, notifying all progress listeners
+			 * @param {*} x progress event payload to pass to all listeners
+			 */
+			function promiseNotify (x) {
+				handler.notify(x);
+			}
+		}
+
+		// Creation
+
+		Promise.resolve = resolve;
+		Promise.reject = reject;
+		Promise.never = never;
+
+		Promise._defer = defer;
+
+		/**
+		 * Returns a trusted promise. If x is already a trusted promise, it is
+		 * returned, otherwise returns a new trusted Promise which follows x.
+		 * @param  {*} x
+		 * @return {Promise} promise
+		 */
+		function resolve(x) {
+			return isPromise(x) ? x
+				: new Promise(Handler, new AsyncHandler(getHandler(x)));
+		}
+
+		/**
+		 * Return a reject promise with x as its reason (x is used verbatim)
+		 * @param {*} x
+		 * @returns {Promise} rejected promise
+		 */
+		function reject(x) {
+			return new Promise(Handler, new AsyncHandler(new RejectedHandler(x)));
+		}
+
+		/**
+		 * Return a promise that remains pending forever
+		 * @returns {Promise} forever-pending promise.
+		 */
+		function never() {
+			return foreverPendingPromise; // Should be frozen
+		}
+
+		/**
+		 * Creates an internal {promise, resolver} pair
+		 * @private
+		 * @returns {Promise}
+		 */
+		function defer() {
+			return new Promise(Handler, new DeferredHandler());
+		}
+
+		// Transformation and flow control
+
+		/**
+		 * Transform this promise's fulfillment value, returning a new Promise
+		 * for the transformed result.  If the promise cannot be fulfilled, onRejected
+		 * is called with the reason.  onProgress *may* be called with updates toward
+		 * this promise's fulfillment.
+		 * @param {function=} onFulfilled fulfillment handler
+		 * @param {function=} onRejected rejection handler
+		 * @deprecated @param {function=} onProgress progress handler
+		 * @return {Promise} new promise
+		 */
+		Promise.prototype.then = function(onFulfilled, onRejected) {
+			var parent = this._handler;
+
+			if (typeof onFulfilled !== 'function' && parent.join().state() > 0) {
+				// Short circuit: value will not change, simply share handler
+				return new Promise(Handler, parent);
+			}
+
+			var p = this._beget();
+			var child = p._handler;
+
+			parent.when({
+				resolve: child.resolve,
+				notify: child.notify,
+				context: child,
+				receiver: parent.receiver,
+				fulfilled: onFulfilled,
+				rejected: onRejected,
+				progress: arguments.length > 2 ? arguments[2] : void 0
+			});
+
+			return p;
+		};
+
+		/**
+		 * If this promise cannot be fulfilled due to an error, call onRejected to
+		 * handle the error. Shortcut for .then(undefined, onRejected)
+		 * @param {function?} onRejected
+		 * @return {Promise}
+		 */
+		Promise.prototype['catch'] = function(onRejected) {
+			return this.then(void 0, onRejected);
+		};
+
+		/**
+		 * Private function to bind a thisArg for this promise's handlers
+		 * @private
+		 * @param {object} thisArg `this` value for all handlers attached to
+		 *  the returned promise.
+		 * @returns {Promise}
+		 */
+		Promise.prototype._bindContext = function(thisArg) {
+			return new Promise(Handler, new BoundHandler(this._handler, thisArg));
+		};
+
+		/**
+		 * Creates a new, pending promise of the same type as this promise
+		 * @private
+		 * @returns {Promise}
+		 */
+		Promise.prototype._beget = function() {
+			var parent = this._handler;
+			var child = new DeferredHandler(parent.receiver, parent.join().context);
+			return new this.constructor(Handler, child);
+		};
+
+		/**
+		 * Check if x is a rejected promise, and if so, delegate to handler._fatal
+		 * @private
+		 * @param {*} x
+		 */
+		Promise.prototype._maybeFatal = function(x) {
+			if(!maybeThenable(x)) {
+				return;
+			}
+
+			var handler = getHandler(x);
+			var context = this._handler.context;
+			handler.catchError(function() {
+				this._fatal(context);
+			}, handler);
+		};
+
+		// Array combinators
+
+		Promise.all = all;
+		Promise.race = race;
+
+		/**
+		 * Return a promise that will fulfill when all promises in the
+		 * input array have fulfilled, or will reject when one of the
+		 * promises rejects.
+		 * @param {array} promises array of promises
+		 * @returns {Promise} promise for array of fulfillment values
+		 */
+		function all(promises) {
+			/*jshint maxcomplexity:8*/
+			var resolver = new DeferredHandler();
+			var pending = promises.length >>> 0;
+			var results = new Array(pending);
+
+			var i, h, x, s;
+			for (i = 0; i < promises.length; ++i) {
+				x = promises[i];
+
+				if (x === void 0 && !(i in promises)) {
+					--pending;
+					continue;
+				}
+
+				if (maybeThenable(x)) {
+					h = isPromise(x)
+						? x._handler.join()
+						: getHandlerUntrusted(x);
+
+					s = h.state();
+					if (s === 0) {
+						resolveOne(resolver, results, h, i);
+					} else if (s > 0) {
+						results[i] = h.value;
+						--pending;
+					} else {
+						resolver.become(h);
+						break;
+					}
+
+				} else {
+					results[i] = x;
+					--pending;
+				}
+			}
+
+			if(pending === 0) {
+				resolver.become(new FulfilledHandler(results));
+			}
+
+			return new Promise(Handler, resolver);
+			function resolveOne(resolver, results, handler, i) {
+				handler.map(function(x) {
+					results[i] = x;
+					if(--pending === 0) {
+						this.become(new FulfilledHandler(results));
+					}
+				}, resolver);
+			}
+		}
+
+		/**
+		 * Fulfill-reject competitive race. Return a promise that will settle
+		 * to the same state as the earliest input promise to settle.
+		 *
+		 * WARNING: The ES6 Promise spec requires that race()ing an empty array
+		 * must return a promise that is pending forever.  This implementation
+		 * returns a singleton forever-pending promise, the same singleton that is
+		 * returned by Promise.never(), thus can be checked with ===
+		 *
+		 * @param {array} promises array of promises to race
+		 * @returns {Promise} if input is non-empty, a promise that will settle
+		 * to the same outcome as the earliest input promise to settle. if empty
+		 * is empty, returns a promise that will never settle.
+		 */
+		function race(promises) {
+			// Sigh, race([]) is untestable unless we return *something*
+			// that is recognizable without calling .then() on it.
+			if(Object(promises) === promises && promises.length === 0) {
+				return never();
+			}
+
+			var h = new DeferredHandler();
+			var i, x;
+			for(i=0; i<promises.length; ++i) {
+				x = promises[i];
+				if (x !== void 0 && i in promises) {
+					getHandler(x).chain(h, h.resolve, h.reject);
+				}
+			}
+			return new Promise(Handler, h);
+		}
+
+		// Promise internals
+
+		/**
+		 * Get an appropriate handler for x, without checking for cycles
+		 * @private
+		 * @param {*} x
+		 * @returns {object} handler
+		 */
+		function getHandler(x) {
+			if(isPromise(x)) {
+				return x._handler.join();
+			}
+			return maybeThenable(x) ? getHandlerUntrusted(x) : new FulfilledHandler(x);
+		}
+
+		function isPromise(x) {
+			return x instanceof Promise;
+		}
+
+		/**
+		 * Get a handler for potentially untrusted thenable x
+		 * @param {*} x
+		 * @returns {object} handler
+		 */
+		function getHandlerUntrusted(x) {
+			try {
+				var untrustedThen = x.then;
+				return typeof untrustedThen === 'function'
+					? new ThenableHandler(untrustedThen, x)
+					: new FulfilledHandler(x);
+			} catch(e) {
+				return new RejectedHandler(e);
+			}
+		}
+
+		/**
+		 * Handler for a promise that is pending forever
+		 * @private
+		 * @constructor
+		 */
+		function Handler() {}
+
+		Handler.prototype.when
+			= Handler.prototype.resolve
+			= Handler.prototype.reject
+			= Handler.prototype.notify
+			= Handler.prototype._fatal
+			= Handler.prototype._unreport
+			= Handler.prototype._report
+			= noop;
+
+		Handler.prototype.inspect = toPendingState;
+
+		Handler.prototype._state = 0;
+
+		Handler.prototype.state = function() {
+			return this._state;
+		};
+
+		/**
+		 * Recursively collapse handler chain to find the handler
+		 * nearest to the fully resolved value.
+		 * @returns {object} handler nearest the fully resolved value
+		 */
+		Handler.prototype.join = function() {
+			var h = this;
+			while(h.handler !== void 0) {
+				h = h.handler;
+			}
+			return h;
+		};
+
+		Handler.prototype.chain = function(to, fulfilled, rejected, progress) {
+			this.when({
+				resolve: noop,
+				notify: noop,
+				context: void 0,
+				receiver: to,
+				fulfilled: fulfilled,
+				rejected: rejected,
+				progress: progress
+			});
+		};
+
+		Handler.prototype.map = function(f, to) {
+			this.chain(to, f, to.reject, to.notify);
+		};
+
+		Handler.prototype.catchError = function(f, to) {
+			this.chain(to, to.resolve, f, to.notify);
+		};
+
+		Handler.prototype.fold = function(to, f, z) {
+			this.join().map(function(x) {
+				getHandler(z).map(function(z) {
+					this.resolve(tryCatchReject2(f, z, x, this.receiver));
+				}, this);
+			}, to);
+		};
+
+		/**
+		 * Handler that manages a queue of consumers waiting on a pending promise
+		 * @private
+		 * @constructor
+		 */
+		function DeferredHandler(receiver, inheritedContext) {
+			Promise.createContext(this, inheritedContext);
+
+			this.consumers = void 0;
+			this.receiver = receiver;
+			this.handler = void 0;
+			this.resolved = false;
+		}
+
+		inherit(Handler, DeferredHandler);
+
+		DeferredHandler.prototype._state = 0;
+
+		DeferredHandler.prototype.inspect = function() {
+			return this.resolved ? this.join().inspect() : toPendingState();
+		};
+
+		DeferredHandler.prototype.resolve = function(x) {
+			if(!this.resolved) {
+				this.become(getHandler(x));
+			}
+		};
+
+		DeferredHandler.prototype.reject = function(x) {
+			if(!this.resolved) {
+				this.become(new RejectedHandler(x));
+			}
+		};
+
+		DeferredHandler.prototype.join = function() {
+			if (this.resolved) {
+				var h = this;
+				while(h.handler !== void 0) {
+					h = h.handler;
+					if(h === this) {
+						return this.handler = new Cycle();
+					}
+				}
+				return h;
+			} else {
+				return this;
+			}
+		};
+
+		DeferredHandler.prototype.run = function() {
+			var q = this.consumers;
+			var handler = this.join();
+			this.consumers = void 0;
+
+			for (var i = 0; i < q.length; ++i) {
+				handler.when(q[i]);
+			}
+		};
+
+		DeferredHandler.prototype.become = function(handler) {
+			this.resolved = true;
+			this.handler = handler;
+			if(this.consumers !== void 0) {
+				tasks.enqueue(this);
+			}
+
+			if(this.context !== void 0) {
+				handler._report(this.context);
+			}
+		};
+
+		DeferredHandler.prototype.when = function(continuation) {
+			if(this.resolved) {
+				tasks.enqueue(new ContinuationTask(continuation, this.handler));
+			} else {
+				if(this.consumers === void 0) {
+					this.consumers = [continuation];
+				} else {
+					this.consumers.push(continuation);
+				}
+			}
+		};
+
+		DeferredHandler.prototype.notify = function(x) {
+			if(!this.resolved) {
+				tasks.enqueue(new ProgressTask(this, x));
+			}
+		};
+
+		DeferredHandler.prototype._report = function(context) {
+			this.resolved && this.handler.join()._report(context);
+		};
+
+		DeferredHandler.prototype._unreport = function() {
+			this.resolved && this.handler.join()._unreport();
+		};
+
+		DeferredHandler.prototype._fatal = function(context) {
+			var c = typeof context === 'undefined' ? this.context : context;
+			this.resolved && this.handler.join()._fatal(c);
+		};
+
+		/**
+		 * Abstract base for handler that delegates to another handler
+		 * @private
+		 * @param {object} handler
+		 * @constructor
+		 */
+		function DelegateHandler(handler) {
+			this.handler = handler;
+		}
+
+		inherit(Handler, DelegateHandler);
+
+		DelegateHandler.prototype.inspect = function() {
+			return this.join().inspect();
+		};
+
+		DelegateHandler.prototype._report = function(context) {
+			this.join()._report(context);
+		};
+
+		DelegateHandler.prototype._unreport = function() {
+			this.join()._unreport();
+		};
+
+		/**
+		 * Wrap another handler and force it into a future stack
+		 * @private
+		 * @param {object} handler
+		 * @constructor
+		 */
+		function AsyncHandler(handler) {
+			DelegateHandler.call(this, handler);
+		}
+
+		inherit(DelegateHandler, AsyncHandler);
+
+		AsyncHandler.prototype.when = function(continuation) {
+			tasks.enqueue(new ContinuationTask(continuation, this.join()));
+		};
+
+		/**
+		 * Handler that follows another handler, injecting a receiver
+		 * @private
+		 * @param {object} handler another handler to follow
+		 * @param {object=undefined} receiver
+		 * @constructor
+		 */
+		function BoundHandler(handler, receiver) {
+			DelegateHandler.call(this, handler);
+			this.receiver = receiver;
+		}
+
+		inherit(DelegateHandler, BoundHandler);
+
+		BoundHandler.prototype.when = function(continuation) {
+			// Because handlers are allowed to be shared among promises,
+			// each of which possibly having a different receiver, we have
+			// to insert our own receiver into the chain if it has been set
+			// so that callbacks (f, r, u) will be called using our receiver
+			if(this.receiver !== void 0) {
+				continuation.receiver = this.receiver;
+			}
+			this.join().when(continuation);
+		};
+
+		/**
+		 * Handler that wraps an untrusted thenable and assimilates it in a future stack
+		 * @private
+		 * @param {function} then
+		 * @param {{then: function}} thenable
+		 * @constructor
+		 */
+		function ThenableHandler(then, thenable) {
+			DeferredHandler.call(this);
+			tasks.enqueue(new AssimilateTask(then, thenable, this));
+		}
+
+		inherit(DeferredHandler, ThenableHandler);
+
+		/**
+		 * Handler for a fulfilled promise
+		 * @private
+		 * @param {*} x fulfillment value
+		 * @constructor
+		 */
+		function FulfilledHandler(x) {
+			Promise.createContext(this);
+			this.value = x;
+		}
+
+		inherit(Handler, FulfilledHandler);
+
+		FulfilledHandler.prototype._state = 1;
+
+		FulfilledHandler.prototype.inspect = function() {
+			return { state: 'fulfilled', value: this.value };
+		};
+
+		FulfilledHandler.prototype.when = function(cont) {
+			var x;
+
+			if (typeof cont.fulfilled === 'function') {
+				Promise.enterContext(this);
+				x = tryCatchReject(cont.fulfilled, this.value, cont.receiver);
+				Promise.exitContext();
+			} else {
+				x = this.value;
+			}
+
+			cont.resolve.call(cont.context, x);
+		};
+
+		var id = 0;
+		/**
+		 * Handler for a rejected promise
+		 * @private
+		 * @param {*} x rejection reason
+		 * @constructor
+		 */
+		function RejectedHandler(x) {
+			Promise.createContext(this);
+
+			this.id = ++id;
+			this.value = x;
+			this.handled = false;
+			this.reported = false;
+
+			this._report();
+		}
+
+		inherit(Handler, RejectedHandler);
+
+		RejectedHandler.prototype._state = -1;
+
+		RejectedHandler.prototype.inspect = function() {
+			return { state: 'rejected', reason: this.value };
+		};
+
+		RejectedHandler.prototype.when = function(cont) {
+			var x;
+
+			if (typeof cont.rejected === 'function') {
+				this._unreport();
+				Promise.enterContext(this);
+				x = tryCatchReject(cont.rejected, this.value, cont.receiver);
+				Promise.exitContext();
+			} else {
+				x = new Promise(Handler, this);
+			}
+
+
+			cont.resolve.call(cont.context, x);
+		};
+
+		RejectedHandler.prototype._report = function(context) {
+			tasks.afterQueue(reportUnhandled, this, context);
+		};
+
+		RejectedHandler.prototype._unreport = function() {
+			this.handled = true;
+			tasks.afterQueue(reportHandled, this);
+		};
+
+		RejectedHandler.prototype._fatal = function(context) {
+			Promise.onFatalRejection(this, context);
+		};
+
+		function reportUnhandled(rejection, context) {
+			if(!rejection.handled) {
+				rejection.reported = true;
+				Promise.onPotentiallyUnhandledRejection(rejection, context);
+			}
+		}
+
+		function reportHandled(rejection) {
+			if(rejection.reported) {
+				Promise.onPotentiallyUnhandledRejectionHandled(rejection);
+			}
+		}
+
+		// Unhandled rejection hooks
+		// By default, everything is a noop
+
+		// TODO: Better names: "annotate"?
+		Promise.createContext
+			= Promise.enterContext
+			= Promise.exitContext
+			= Promise.onPotentiallyUnhandledRejection
+			= Promise.onPotentiallyUnhandledRejectionHandled
+			= Promise.onFatalRejection
+			= noop;
+
+		// Errors and singletons
+
+		var foreverPendingHandler = new Handler();
+		var foreverPendingPromise = new Promise(Handler, foreverPendingHandler);
+
+		function Cycle() {
+			RejectedHandler.call(this, new TypeError('Promise cycle'));
+		}
+
+		inherit(RejectedHandler, Cycle);
+
+		// Snapshot states
+
+		/**
+		 * Creates a pending state snapshot
+		 * @private
+		 * @returns {{state:'pending'}}
+		 */
+		function toPendingState() {
+			return { state: 'pending' };
+		}
+
+		// Task runners
+
+		/**
+		 * Run a single consumer
+		 * @private
+		 * @constructor
+		 */
+		function ContinuationTask(continuation, handler) {
+			this.continuation = continuation;
+			this.handler = handler;
+		}
+
+		ContinuationTask.prototype.run = function() {
+			this.handler.join().when(this.continuation);
+		};
+
+		/**
+		 * Run a queue of progress handlers
+		 * @private
+		 * @constructor
+		 */
+		function ProgressTask(handler, value) {
+			this.handler = handler;
+			this.value = value;
+		}
+
+		ProgressTask.prototype.run = function() {
+			var q = this.handler.consumers;
+			if(q === void 0) {
+				return;
+			}
+			// First progress handler is at index 1
+			for (var i = 0; i < q.length; ++i) {
+				this._notify(q[i]);
+			}
+		};
+
+		ProgressTask.prototype._notify = function(continuation) {
+			var x = typeof continuation.progress === 'function'
+				? tryCatchReturn(continuation.progress, this.value, continuation.receiver)
+				: this.value;
+
+			continuation.notify.call(continuation.context, x);
+		};
+
+		/**
+		 * Assimilate a thenable, sending it's value to resolver
+		 * @private
+		 * @param {function} then
+		 * @param {object|function} thenable
+		 * @param {object} resolver
+		 * @constructor
+		 */
+		function AssimilateTask(then, thenable, resolver) {
+			this._then = then;
+			this.thenable = thenable;
+			this.resolver = resolver;
+		}
+
+		AssimilateTask.prototype.run = function() {
+			var h = this.resolver;
+			tryAssimilate(this._then, this.thenable, _resolve, _reject, _notify);
+
+			function _resolve(x) { h.resolve(x); }
+			function _reject(x)  { h.reject(x); }
+			function _notify(x)  { h.notify(x); }
+		};
+
+		function tryAssimilate(then, thenable, resolve, reject, notify) {
+			try {
+				then.call(thenable, resolve, reject, notify);
+			} catch (e) {
+				reject(e);
+			}
+		}
+
+		// Other helpers
+
+		/**
+		 * @param {*} x
+		 * @returns {boolean} false iff x is guaranteed not to be a thenable
+		 */
+		function maybeThenable(x) {
+			return (typeof x === 'object' || typeof x === 'function') && x !== null;
+		}
+
+		/**
+		 * Return f.call(thisArg, x), or if it throws return a rejected promise for
+		 * the thrown exception
+		 * @private
+		 */
+		function tryCatchReject(f, x, thisArg) {
+			try {
+				return f.call(thisArg, x);
+			} catch(e) {
+				return reject(e);
+			}
+		}
+
+		/**
+		 * Same as above, but includes the extra argument parameter.
+		 * @private
+		 */
+		function tryCatchReject2(f, x, y, thisArg) {
+			try {
+				return f.call(thisArg, x, y);
+			} catch(e) {
+				return reject(e);
+			}
+		}
+
+		/**
+		 * Return f.call(thisArg, x), or if it throws, *return* the exception
+		 * @private
+		 */
+		function tryCatchReturn(f, x, thisArg) {
+			try {
+				return f.call(thisArg, x);
+			} catch(e) {
+				return e;
+			}
+		}
+
+		function inherit(Parent, Child) {
+			Child.prototype = objectCreate(Parent.prototype);
+			Child.prototype.constructor = Child;
+		}
+
+		function noop() {}
+
+		return Promise;
+	};
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],22:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function(require) {
+
+	var Queue = require('./Queue');
+
+	// Credit to Twisol (https://github.com/Twisol) for suggesting
+	// this type of extensible queue + trampoline approach for next-tick conflation.
+
+	function Scheduler(enqueue) {
+		this._enqueue = enqueue;
+		this._handlerQueue = new Queue(15);
+		this._afterQueue = new Queue(5);
+		this._running = false;
+
+		var self = this;
+		this.drain = function() {
+			self._drain();
+		};
+	}
+
+	/**
+	 * Enqueue a task. If the queue is not currently scheduled to be
+	 * drained, schedule it.
+	 * @param {function} task
+	 */
+	Scheduler.prototype.enqueue = function(task) {
+		this._handlerQueue.push(task);
+		if(!this._running) {
+			this._running = true;
+			this._enqueue(this.drain);
+		}
+	};
+
+	Scheduler.prototype.afterQueue = function(f, x, y) {
+		this._afterQueue.push(f);
+		this._afterQueue.push(x);
+		this._afterQueue.push(y);
+		if(!this._running) {
+			this._running = true;
+			this._enqueue(this.drain);
+		}
+	};
+
+	/**
+	 * Drain the handler queue entirely, being careful to allow the
+	 * queue to be extended while it is being processed, and to continue
+	 * processing until it is truly empty.
+	 */
+	Scheduler.prototype._drain = function() {
+		var q = this._handlerQueue;
+		while(q.length > 0) {
+			q.shift().run();
+		}
+
+		this._running = false;
+
+		q = this._afterQueue;
+		while(q.length > 0) {
+			q.shift()(q.shift(), q.shift());
+		}
+	};
+
+	return Scheduler;
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
+
+},{"./Queue":9}],23:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function(require) {
+	/*global setTimeout,clearTimeout*/
+	var cjsRequire, vertx, setTimer, clearTimer;
+
+	cjsRequire = require;
+
+	try {
+		vertx = cjsRequire('vertx');
+		setTimer = function (f, ms) { return vertx.setTimer(ms, f); };
+		clearTimer = vertx.cancelTimer;
+	} catch (e) {
+		setTimer = function(f, ms) { return setTimeout(f, ms); };
+		clearTimer = function(t) { return clearTimeout(t); };
+	}
+
+	return {
+		set: setTimer,
+		clear: clearTimer
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
+
+},{}],24:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+
+/**
+ * Promises/A+ and when() implementation
+ * when is part of the cujoJS family of libraries (http://cujojs.com/)
+ * @author Brian Cavalier
+ * @author John Hann
+ * @version 3.2.3
+ */
+(function(define) { 'use strict';
+define(function (require) {
+
+	var timed = require('./lib/decorators/timed');
+	var array = require('./lib/decorators/array');
+	var flow = require('./lib/decorators/flow');
+	var fold = require('./lib/decorators/fold');
+	var inspect = require('./lib/decorators/inspect');
+	var generate = require('./lib/decorators/iterate');
+	var progress = require('./lib/decorators/progress');
+	var withThis = require('./lib/decorators/with');
+	var unhandledRejection = require('./lib/decorators/unhandledRejection');
+	var TimeoutError = require('./lib/TimeoutError');
+
+	var Promise = [array, flow, fold, generate, progress,
+		inspect, withThis, timed, unhandledRejection]
+		.reduce(function(Promise, feature) {
+			return feature(Promise);
+		}, require('./lib/Promise'));
+
+	var slice = Array.prototype.slice;
+
+	// Public API
+
+	when.promise     = promise;              // Create a pending promise
+	when.resolve     = Promise.resolve;      // Create a resolved promise
+	when.reject      = Promise.reject;       // Create a rejected promise
+
+	when.lift        = lift;                 // lift a function to return promises
+	when['try']      = attempt;              // call a function and return a promise
+	when.attempt     = attempt;              // alias for when.try
+
+	when.iterate     = Promise.iterate;      // Generate a stream of promises
+	when.unfold      = Promise.unfold;       // Generate a stream of promises
+
+	when.join        = join;                 // Join 2 or more promises
+
+	when.all         = all;                  // Resolve a list of promises
+	when.settle      = settle;               // Settle a list of promises
+
+	when.any         = lift(Promise.any);    // One-winner race
+	when.some        = lift(Promise.some);   // Multi-winner race
+
+	when.map         = map;                  // Array.map() for promises
+	when.reduce      = reduce;               // Array.reduce() for promises
+	when.reduceRight = reduceRight;          // Array.reduceRight() for promises
+
+	when.isPromiseLike = isPromiseLike;      // Is something promise-like, aka thenable
+
+	when.Promise     = Promise;              // Promise constructor
+	when.defer       = defer;                // Create a {promise, resolve, reject} tuple
+
+	// Error types
+
+	when.TimeoutError = TimeoutError;
+
+	/**
+	 * Get a trusted promise for x, or by transforming x with onFulfilled
+	 *
+	 * @param {*} x
+	 * @param {function?} onFulfilled callback to be called when x is
+	 *   successfully fulfilled.  If promiseOrValue is an immediate value, callback
+	 *   will be invoked immediately.
+	 * @param {function?} onRejected callback to be called when x is
+	 *   rejected.
+	 * @deprecated @param {function?} onProgress callback to be called when progress updates
+	 *   are issued for x.
+	 * @returns {Promise} a new promise that will fulfill with the return
+	 *   value of callback or errback or the completion value of promiseOrValue if
+	 *   callback and/or errback is not supplied.
+	 */
+	function when(x, onFulfilled, onRejected) {
+		var p = Promise.resolve(x);
+		if(arguments.length < 2) {
+			return p;
+		}
+
+		return arguments.length > 3
+			? p.then(onFulfilled, onRejected, arguments[3])
+			: p.then(onFulfilled, onRejected);
+	}
+
+	/**
+	 * Creates a new promise whose fate is determined by resolver.
+	 * @param {function} resolver function(resolve, reject, notify)
+	 * @returns {Promise} promise whose fate is determine by resolver
+	 */
+	function promise(resolver) {
+		return new Promise(resolver);
+	}
+
+	/**
+	 * Lift the supplied function, creating a version of f that returns
+	 * promises, and accepts promises as arguments.
+	 * @param {function} f
+	 * @returns {Function} version of f that returns promises
+	 */
+	function lift(f) {
+		return function() {
+			return _apply(f, this, slice.call(arguments));
+		};
+	}
+
+	/**
+	 * Call f in a future turn, with the supplied args, and return a promise
+	 * for the result.
+	 * @param {function} f
+	 * @returns {Promise}
+	 */
+	function attempt(f /*, args... */) {
+		/*jshint validthis:true */
+		return _apply(f, this, slice.call(arguments, 1));
+	}
+
+	/**
+	 * try/lift helper that allows specifying thisArg
+	 * @private
+	 */
+	function _apply(f, thisArg, args) {
+		return Promise.all(args).then(function(args) {
+			return f.apply(thisArg, args);
+		});
+	}
+
+	/**
+	 * Creates a {promise, resolver} pair, either or both of which
+	 * may be given out safely to consumers.
+	 * @return {{promise: Promise, resolve: function, reject: function, notify: function}}
+	 */
+	function defer() {
+		return new Deferred();
+	}
+
+	function Deferred() {
+		var p = Promise._defer();
+
+		function resolve(x) { p._handler.resolve(x); }
+		function reject(x) { p._handler.reject(x); }
+		function notify(x) { p._handler.notify(x); }
+
+		this.promise = p;
+		this.resolve = resolve;
+		this.reject = reject;
+		this.notify = notify;
+		this.resolver = { resolve: resolve, reject: reject, notify: notify };
+	}
+
+	/**
+	 * Determines if x is promise-like, i.e. a thenable object
+	 * NOTE: Will return true for *any thenable object*, and isn't truly
+	 * safe, since it may attempt to access the `then` property of x (i.e.
+	 *  clever/malicious getters may do weird things)
+	 * @param {*} x anything
+	 * @returns {boolean} true if x is promise-like
+	 */
+	function isPromiseLike(x) {
+		return x && typeof x.then === 'function';
+	}
+
+	/**
+	 * Return a promise that will resolve only once all the supplied arguments
+	 * have resolved. The resolution value of the returned promise will be an array
+	 * containing the resolution values of each of the arguments.
+	 * @param {...*} arguments may be a mix of promises and values
+	 * @returns {Promise}
+	 */
+	function join(/* ...promises */) {
+		return Promise.all(arguments);
+	}
+
+	/**
+	 * Return a promise that will fulfill once all input promises have
+	 * fulfilled, or reject when any one input promise rejects.
+	 * @param {array|Promise} promises array (or promise for an array) of promises
+	 * @returns {Promise}
+	 */
+	function all(promises) {
+		return when(promises, Promise.all);
+	}
+
+	/**
+	 * Return a promise that will always fulfill with an array containing
+	 * the outcome states of all input promises.  The returned promise
+	 * will only reject if `promises` itself is a rejected promise.
+	 * @param {array|Promise} promises array (or promise for an array) of promises
+	 * @returns {Promise}
+	 */
+	function settle(promises) {
+		return when(promises, Promise.settle);
+	}
+
+	/**
+	 * Promise-aware array map function, similar to `Array.prototype.map()`,
+	 * but input array may contain promises or values.
+	 * @param {Array|Promise} promises array of anything, may contain promises and values
+	 * @param {function} mapFunc map function which may return a promise or value
+	 * @returns {Promise} promise that will fulfill with an array of mapped values
+	 *  or reject if any input promise rejects.
+	 */
+	function map(promises, mapFunc) {
+		return when(promises, function(promises) {
+			return Promise.map(promises, mapFunc);
+		});
+	}
+
+	/**
+	 * Traditional reduce function, similar to `Array.prototype.reduce()`, but
+	 * input may contain promises and/or values, and reduceFunc
+	 * may return either a value or a promise, *and* initialValue may
+	 * be a promise for the starting value.
+	 *
+	 * @param {Array|Promise} promises array or promise for an array of anything,
+	 *      may contain a mix of promises and values.
+	 * @param {function} f reduce function reduce(currentValue, nextValue, index)
+	 * @returns {Promise} that will resolve to the final reduced value
+	 */
+	function reduce(promises, f /*, initialValue */) {
+		/*jshint unused:false*/
+		var args = slice.call(arguments, 1);
+		return when(promises, function(array) {
+			args.unshift(array);
+			return Promise.reduce.apply(Promise, args);
+		});
+	}
+
+	/**
+	 * Traditional reduce function, similar to `Array.prototype.reduceRight()`, but
+	 * input may contain promises and/or values, and reduceFunc
+	 * may return either a value or a promise, *and* initialValue may
+	 * be a promise for the starting value.
+	 *
+	 * @param {Array|Promise} promises array or promise for an array of anything,
+	 *      may contain a mix of promises and values.
+	 * @param {function} f reduce function reduce(currentValue, nextValue, index)
+	 * @returns {Promise} that will resolve to the final reduced value
+	 */
+	function reduceRight(promises, f /*, initialValue */) {
+		/*jshint unused:false*/
+		var args = slice.call(arguments, 1);
+		return when(promises, function(array) {
+			args.unshift(array);
+			return Promise.reduceRight.apply(Promise, args);
+		});
+	}
+
+	return when;
+});
+})(typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); });
+
+},{"./lib/Promise":8,"./lib/TimeoutError":10,"./lib/decorators/array":12,"./lib/decorators/flow":13,"./lib/decorators/fold":14,"./lib/decorators/inspect":15,"./lib/decorators/iterate":16,"./lib/decorators/progress":17,"./lib/decorators/timed":18,"./lib/decorators/unhandledRejection":19,"./lib/decorators/with":20}],25:[function(require,module,exports){
 /*jslint */
 /*global window, document, console, localStorage */
 /*global define,require*/
-
-define('script/chuckbob',[
-	'when',
-	'../bower_components/URIjs/src/URI',
-	'script/gui',
-	'script/phantom-reporter'
-], function (
-	when,
-	URI,
-	gui,
-	phantomReporter
-) {
-	
+"use strict";
 
 	// Chuck = the ventriloquist of soap.
 	// http://www.youtube.com/watch?v=DwDbd4jQpkA
 	// Bob = the doll chuck controls, i.e. the api you tell to do stuff
 
-	var api = {},
+var when = require('when'),
+		URI = require('URIjs'),
+		gui = require('./gui'),
+		phantomReporter = require('./phantom-reporter'),
+		
+		api = {},
 		reporter = gui,
 		integrationApi = {},
 		DOING_RELOAD_CONDITION = 'DoingReload',
-		$ = 'We need to set jQuery from outside',
+		$ = null,
 		loadTimeIndicator = Date.now().toString().slice(-2),
 		$element, // Set by pick etc.
 		$currentValueSelector, // Set by count
@@ -15308,7 +15539,7 @@ define('script/chuckbob',[
 			return text;
 		},
 		skipNextSeparator = false,
-		sep = function () {
+		logSeparator = function () {
 			if (skipNextSeparator) {
 				skipNextSeparator = false;
 			} else {
@@ -15523,14 +15754,14 @@ define('script/chuckbob',[
 			console.log("Parameters", params);
 
 			if (serializeMethod === serializeToLocalStorage) {
-				ls = localStorage.getItem('smokeState');
-				localStorage.removeItem('smokeState');
+				ls = localStorage.getItem('bobState');
+				localStorage.removeItem('bobState');
 				if (ls) {
 					deSerializeState(ls);
 				}
 			} else if (serializeMethod === serializeToQueryString) {
-				if (params.smokeState) {
-					deSerializeState(params.smokeState);
+				if (params.bobState) {
+					deSerializeState(params.bobState);
 				}
 			}
 			if (state && state.originalUri) {
@@ -15570,7 +15801,7 @@ define('script/chuckbob',[
 				answer = when.resolve();
 			} else {
 				log("Test result: " + status);
-				sep();
+				logSeparator();
 				setStatus(status);
 			}
 			return answer;
@@ -15586,7 +15817,7 @@ define('script/chuckbob',[
 				return when.resolve(true);
 			}
 
-			sep();
+			logSeparator();
 			log("Running test: " + testCase.testCaseName);
 			runningTest = true;
 			setStatus('Running');
@@ -15675,6 +15906,18 @@ define('script/chuckbob',[
 			});
 			return bob;
 		},
+		write = function (text) {
+			addTask(function () {
+				if ($element.is('input')) {
+					$element.val(text).trigger('input').trigger('change');
+					log('Wrote: ' + text);
+				} else {
+					log('The current element is not an input-tag');
+					fail();
+				};
+			});
+			return bob;
+		},
 		sleep = function (ms) {
 			var resolver = function (resolve, reject, notify) {
 				log("Waiting (" + ms + "ms)");
@@ -15739,8 +15982,12 @@ define('script/chuckbob',[
 		},
 		clearLocalStorage = function () {
 			addTask(function () {
-				log("Clearing local storage");
-				localStorage.clear();
+				if (! state.testHasNavigated) {
+					log("Clearing local storage");
+					localStorage.clear();
+				} else {
+					log("Clearing local storage was done before reload.");
+				};
 			});
 			return bob;
 		},
@@ -15795,8 +16042,8 @@ define('script/chuckbob',[
 				params,
 				hash,
 				buildUri = false,
-				hashMatch = destination.match(/^\S*(#(\w|\W)+)/),
-				queryParamsMatch = destination.match(/^([?][a-zA-Z0-9_&=%@]+)/);
+				hashMatch = destination && destination.match(/^\S*(#(\w|\W)+)/),
+				queryParamsMatch = destination && destination.match(/^([?][a-zA-Z0-9_&=%@]+)/);
 
 			//relative hash
 			if (hashMatch && hashMatch.length > 1) {
@@ -15820,7 +16067,7 @@ define('script/chuckbob',[
 				}
 				url = url.href();
 			} else {
-				url = destination; //Default
+				url = destination || winLocation; //Default
 			}
 			return url;
 		},
@@ -15871,16 +16118,23 @@ define('script/chuckbob',[
 						url = urlFromDestination(wantedUrl,  currentLoc);
 					assert(url === expectedUrl,
 						'Query param added, hash preserved, foo changed to 1234');
+				},
+				testGotoUndefined = function () {
+					var currentLoc = window.location,
+						url = urlFromDestination(undefined, currentLoc);
+					assert(url === currentLoc,
+						   "Expected undefined to mean the current location");
 				};
 			testGotoPlainUrl();
 			testGotoHash();
 			testGotoHashWithSlash();
 			testGotoAddQueryParameter();
 			testGotoChangeQueryParameter();
+			testGotoUndefined();
 		},
 		safeURI = function (url) {
 			return URI(url)
-				.removeSearch('smokeState')
+				.removeSearch('bobState')
 				.removeSearch('chuckbob');
 		},
 		navigate = function (destination) {
@@ -15890,25 +16144,33 @@ define('script/chuckbob',[
 						safeURI(state.originalUri).href() : currentURI.href(),
 					url = urlFromDestination(destination, base),
 					toUrl = URI(url),
+					rightUrl = currentURI.equals(toUrl),
+					forceReload = (destination === undefined),
 					newUri,
 					stateSerialized;
 				log("Current url: " + currentURI.href());
 				log("Desired url: " + toUrl.href());
-				if (currentURI.equals(toUrl) && ! state.testHasNavigated) {
-					log("We are at the right location:" + currentURI.readable());
+
+				if ((rightUrl && ! state.testHasNavigated && ! forceReload) ||
+					state.testHasNavigated
+				   ) {
+					   log("We are at the right location:" + currentURI.readable());
+					   if (state.testHasNavigated) {
+						   delete state.testHasNavigated;
+					   }
 				} else {
 					// We need to reload the client from the new url.
 					// Save the current state of unit testing, then continue
 					// on the reloaded page
 					state.currentTestNr = state.currentTestNr - 1;
-
+					state.testHasNavigated = true;
 
 					stateSerialized = serializeState();
 					if (serializeMethod === serializeToQueryString) {
-						newUri = toUrl.addSearch('smokeState', stateSerialized);
+						newUri = toUrl.addSearch('bobState', stateSerialized);
 						console.log(newUri.href());
 					} else if (serializeMethod === serializeToLocalStorage) {
-						localStorage.setItem('smokeState', stateSerialized);
+						localStorage.setItem('bobState', stateSerialized);
 						console.log("Leaving with", state);
 						// Phantomjs on windows seems to need a fresh url each time
 						// adding a semi-random query string param seems to be needed
@@ -15917,7 +16179,7 @@ define('script/chuckbob',[
 					}
 
 					log("I am now going to another url. Bye");
-					state.testHasNavigated = true;
+
 					leavingPage = true;
 					window.location = newUri.href();
 					throw (new Error(DOING_RELOAD_CONDITION));
@@ -16003,7 +16265,7 @@ define('script/chuckbob',[
 				return;
 			}
 			log('All tests OK. Stopping now, celebrate.');
-			sep();
+			logSeparator();
 			state.finalResult.ok = true;
 			resetRunningState();
 			reporter.showResult(state.finalResult);
@@ -16046,7 +16308,7 @@ define('script/chuckbob',[
 			if (!testIndex) {
 				log('There are ' + tests.length + ' tests.');
 				state.currentTestNr = 0;
-				sep();
+				logSeparator();
 				testIndex = 0;
 			} else {
 				log('Continuing testing after reload, at ' +
@@ -16058,7 +16320,7 @@ define('script/chuckbob',[
 		},
 		shouldAutoStart = function () {
 			var uri = URI(window.location),
-				hasLocalStorageState = localStorage.getItem('smokeState') && true,
+				hasLocalStorageState = localStorage.getItem('bobState') && true,
 				hasPhantomjsQueryStringParam = uri.hasQuery('phantomjs');
 
 			console.log('chuckbob.js:Line 619', hasLocalStorageState);
@@ -16066,7 +16328,7 @@ define('script/chuckbob',[
 			phantomJs = hasPhantomjsQueryStringParam;
 
 			return uri.hasQuery('autostart') ||
-				uri.hasQuery('smokeState') ||
+				uri.hasQuery('bobState') ||
 				phantomJs ||
 				hasLocalStorageState;
 		},
@@ -16133,6 +16395,7 @@ define('script/chuckbob',[
 		setJQuery = function (jQuery) {
 			$ = jQuery;
 			api.$ = $;
+			bob.$ = $;
 		},
 		selfTest = function () {
 			testUrlFromDestination();
@@ -16177,6 +16440,7 @@ define('script/chuckbob',[
 	bob.count = count;
 	bob.pickNow = pickNow;
 	bob.countNow = countNow;
+	bob.write = write;
 
 	bob.sleep = sleep;
 
@@ -16234,22 +16498,221 @@ define('script/chuckbob',[
 	selfTest();
 
 
-	return api;
+module.exports = api;
 
-});
+},{"./gui":28,"./phantom-reporter":29,"URIjs":4,"when":24}],26:[function(require,module,exports){
+var
+	$ = require('jquery'),
+	// http://www.coderholic.com/jquery-draggable-implementation/
+	// Make an element draggable using jQuery
+	makeDraggable = function(element) {
+		element = $(element);
 
-/*global window, document */
-/*global require */
+		// Move the element by the amount of change in the mouse position
+		var move = function(event) {
+			if(element.data('mouseMove')) {
+				var changeX = event.clientX - element.data('mouseX');
+				var changeY = event.clientY - element.data('mouseY');
 
-require([
-	'script/chuckbob'
-], function (chuckbob) {
-	
+				var newX = parseInt(element.css('left')) + changeX;
+				var newY = parseInt(element.css('top')) + changeY;
 
-	if (window.afterChuckbob) {
-		window.afterChuckbob(chuckbob);
+				element.css('left', newX);
+				element.css('top', newY);
+
+				element.data('mouseX', event.clientX);
+				element.data('mouseY', event.clientY);
+			}
+		}
+
+		element.mousedown(function(event) {
+			element.data('mouseMove', true);
+			element.data('mouseX', event.clientX);
+			element.data('mouseY', event.clientY);
+		});
+
+		element.parents(':last').mouseup(function() {
+			element.data('mouseMove', false);
+		});
+
+		element.mouseout(move);
+		element.mousemove(move);
 	};
-});
 
-define("main", function(){});
-}());
+module.exports = makeDraggable;
+
+},{"jquery":7}],27:[function(require,module,exports){
+module.exports = "<!doctype html>\n<html>\n  <head>\n\t<title></title>\n\t<meta charset=\"utf-8\" />\n\t<style>\n\t</style>\n  </head>\n  <body>\n  <div class=\"chuckbob\">\n    <a class=\"chuckbob__toggler\" href=\"#\">Hide</a>\n    <div class=\"chuckbob__container\">\n    <h1>ChuckBob</h1>\n\t  <select class=\"chuckbob__tests-list\"></select>\n\n\n\t  <fieldset class=\"chuckbob__single-step-controls\">\n\t\t<label>Single step</label>\n\t\t<button class=\"chuckbob__single-step\">Start</button>\n\t\t<button class=\"chuckbob__step\">Step</button>\n\t\t<button class=\"chuckbob__resume\">Resume</button>\n\t  </fieldset>\n\n  \t  <fieldset class=\"chuckbob__run-controls\">\n\t\t<label>Run</label>\n\t\t<button class=\"chuckbob__run-button\">All</button>\n\t\t<button class=\"chuckbob__run-single-button\">Selected</button>\n\t\t<button class=\"chuckbob__restart-button\">Reload</button>\n\t  </fieldset>\n\t  <h2>Result:<span class=\"chuckbob__result\">(run to see)</span></h2>\n\t  <textarea class=\"chuckbob__test-log\"></textarea>\n\n  \t  <fieldset class=\"chuckbox__exit-controls\">\n\t\t<button class=\"chuckbob__exit-button\" title=\"Go to original url\">Home</button>\n\t\t<button class=\"chuckbob__abort-button\" title=\"Close this window\">Abort</button>\n\t  </fieldset>\n\n\t  <!--Title: Sad Trombone\n\t  About: This is the sad trombone sound effect great for telling someone they screwed up or have just messed something up big. bookmark and play for your pals..in good humor of course.\n\t  License: Attribution 3.0 | Recorded by Joe Lamb\n\t  http://soundbible.com/1830-Sad-Trombone.html\n\t  -->\n\t  <audio class=\"chuckbob__fail-sound\" src=\"data:audio/mp3;base64,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F5lYcBxnJQYACoQwgQ0QRP5EljzFoymis1dgMAl+TCA5svkysYARmCKCraqxaeaZKxAGGgjdYPUrhiCp//vSADAABslVz2u6Y2zDaQntd1hcliUfT61h67LYo+n1rD139wE4SohrkhCMic+mMCylJhDYKa0CJyI1mWywyecxQ8PH3ueoTlpVRQekToKPJJaM/46RrFL69cdP0okdXMd9YFizLN42+xNebmnuRbO2z6dt9zZ3t+WIe78ox////////////////////////////////////////7QAjklu1tsZZgAgFMBwAM8IKMEgBYJGzAcQRYYnrMaR5M2T7IsTKw4cZycEAAaEMIGNEEVkQtakx6Kqqr1UMCgFA0xAGdYNDbYKOgeiA3OXy0KVF0FpiiBaCPMTUPYi3alfSBJyBb159KeHrecxZlsooY5My12aGPSrtiGpDg/PJbY5nVsxr86WlylEvsV71NnPSmNU8tw3ylzr7qyfPOXc3Uq7rZdnNUVetnvV3uPbtm/qwPKhkEDIWLg4sEAUPizv/rhIJkm231saTKFZ2EAngEPH/bIYhUhRACmIwCYgreVVIOubEmwJcSOyHFctxIo19NRWlFViiA5pUWXPH97+tFkyU93/riyiljrRQEcvggEQyDmddyV7yAePZ2raGRYMKErV22s8ZP1gx5H0R+1sbuJAkXoDIsXfOXnq+hUYG6kJ7BVi03vVLOt5fXvfM8GFEa5bQMU8TT+B8702RgZWJJhwoXCwNBcRih7eL2P12ln2DUwkEuTbb62NJpC22EAnkDnj/tkMUqQGPApiMAn8dNNpB1zYabAlxJ7Icly3Efhy1YFQpCscQ2YFJ1b4nTQzRzk+mSpW/doL0I+LWS4C2QAUKZcD+ZFfdD2BxSkCeEzqB01p56kT5gnW5v6s6nWHzYptMUNKQniid5eR2uSsJ7h6+UDXGVEabbm+5+tivjPGOL9wM4eLtr9Za3+q6vW9YFyqulKfoe1KhIlBNvtf/P/SBbQ8+1h/7KSU7Nt//tY2kyx6Uix5XFEJSc76BsnLjG46hJWHAoEVqKG4OFioTIAFQKDq39TJWLZqwEzZmblM8TCcvKCnodBoqpFwt3HiCvZXgnqQJuznWvHg40mThMECh7krojGfqgWkmfZeHNRkrptpJQoVVqM/WX1WxyaoJzq9wbr/+9IAPgAHykXV6zh67Lio+r1nD12V5Q9PrWHruvqkafWcPbZ2PMKC/P9YjQYZ4Lzfdnbni5w/hrmBfe495Kz6zDzt5TWp7hACtnwMsmh4AcNeHiNRG59rkc3atKP//////////////////////////////////////////////////////////////////////////////////////////+klOzbf/7WNpQqcykaPK5IhKTphQNk5cY3nS/qw4FEhKk0NwkWCX0iAyJMdW/qZK7bMy+zjLTgZuiYT90csbBGGerEYo0sXoNNUuBAVEcarP9EE0cXBZYFIhKjfqJlfm7APttR5SLlyMOOvxzsTqqiPpnja26c0VpVq942KpvjNSHw3p9R0/P2pdyI9aouVVGfH/iVz+4clXPEsHGItfiNrNfFAYiB9AEICjxEImYZempS37TSpmWTXACk3JbdrY0EBqDTYSqfQNi0XOk8VpirEQEfGtMtCxTKGSMhLlJQNNfZKttnqQlLqaazUcIqFPVsTdaNkTqQ/Lp2OQqiXA3QIYANE9BGgWAjapJUpHjUarCPUXJNJQ41FNQurWaw5HJIGgzCSzt7fCfH0dMdDHjliFV8rD1fOo584a4yqbFwzOEVrRK4cErD0rWhLYkdPX1aw966shON4WoT6UBVzKD4bDe3NmiAb8oAEm5LbtbGkXpHQGwlV8WBi1s5mFEIqxEBPjTzLQoKZRyRkJbJKBkr7JVts8Rd5dTLWSjhFWpot0aLG1zPJDdNi+EDRRWhuiNgKEuVEIvYojIVzMyiDwjlSW4tysUBY1WhEAnsqbOxyakMWg1Ksfr6iuhBOYbEv3ftSda2Q/XODo+byx8KmA50XENU2nZE+pV2qdxKTUfSsudwJ2SRoe2g4xPXE0CDDfYkusJKDoqVEkMhuREXvrKzixZqa1KEgYRIBcktsiRCXLRmjmDiOIwArYrw5GwRYVv+ieupTmgVnUKgfEt+TIcR9zAB2XfVslEANeCxlBG2Z4mZONpAb3dh2ViMKd6qqZwkEQYIiTgLebBOZVVdmcZi/hfJBLx1cdrtADVQC4UYjRbyePbulw5KA/G5iVR1Oo79XnP/70gA+AAaOSFFrmHrsuiqqTW8PbZkpQUmt4w27KynpNbxht6rEOZW/CmiVfS0tK3Zdtzx2u6SR3k7FF1AZ22HqA2x2aaI8xrEG+9494VmMRJGhQGhgOEwgDqAWAh+ju6f////////////////////////////////9lEkpyW22NIq9epR8xptTQaQzQ+GVGheGyz6PyMckQ7lBnnqpXosPxEy5EOw+yjCOO8IgMQZMp0PEfRajY5FGKshT3bm1lVzcKytq4rEbgBwd0cOFqGvk6bIcWEpeboTgiKEGuG8McMCIXEwjkO4hB6adLZ1RYdmNI6S0O8Km4L5+rmrEBuety6tBblxGPyOxMqtxiuaeW7lTTzzfH9Le1574pHvrd7T73TFJc0nvqSTGo+W7+cUmvewnCiCm5Nt9Y0EFAABo7GeDgkBwLCzpJpGKbAAKDmxRmChCEjgoqvgv+mvWpW0Rhmkpwxc5exZmBjpMF6wudajFXyoLrKU+B6SmQ6cvEGBgUu6kqps6y6otTwLWflQJgKEtGlnqsK+YbXY5BfFfTNhQwdNW1McHBltMik0Ri8ukeNqw7kvjNeP3834uS+EvvDGUSikIoZA+sNZOyzePxWcjMBNehrtLqlsYxe5LaaCKbmEbtWtUuePyzC7Kr2P7wy/f/vHv5WP2J4BLQogpuTbbWNBAYAANHY0AMDBOBX7OopEYpsAA4OcFGYKC4SMCiq+C76a9albRGGPIvhz7FFxuYCmmwXTC51iM1ai6lVTFIAikl8SlTCDAwIXdT9SKdZc0GQC8lakjUtZezWOymWz8OQhgLSoUFhCY0eV5oKw9DTrug9+41ILsOwmH6r/N3lleMT8NwmboKOYnGWzrToZgqHnscOvLOOTHIGfapdoKW/8XmqWNTVNZqu3P7y1jq/vKvfqa7fw/Kz39b5vCxzVrL+3+hWBAgApSy7WtEMQSVKoAY69GUAAQDrQObJUIFSDIQHJbBoNQFjeIdbAIrpB2rgmlHduyPIVMlrFGnvyJTkaQiC79vW6zB7bdAIxMTJnIm1p76FVgKmLDVQMQVp0qjz+q2NYkcIaHDMVc6iVODHBwmIMMZAsZ43JR5oINeJuy//vSAD4AB2JH0Ot4wu7Eqnodbxht1mEzT6zh7brwKKm1nD22/7LpsollG0aMUUBsoR/Ynaa3TwpS+5flGde3EJZN50dHYp4a+cxd7LtS7Z+Kcu4S2ty5E72sce7mM8ZvE7R/mGe7Ak4IAZf//////////////////////////////////////////////////////9AAApOy3WtELsSVJQAx1+DAxXa0DnStCBUgqEByewaDS94/iHWwCLKNc9cIis/jzKQqZLWHGhwcLTn0JBdt+2xqfd+otgwIWhNKCjSX7kibiu2bvgkLAOKhymrJFbGEJ8S6EwLDEIaeCIIHOQ7i8lTM/lyRuU296ci93Iha8J1y27OltyWGKDuXMy7F13XpbUxVprEC/VztxvDsji/2Jdr6lN+p3Cr8MyrdyV91zWt25/Cbl89veu91//rn/z9/nz+VcAEUyCS0ppdrY0FerWTRPv0ewjQ62ZH6B7lqomAwnTTlxS0PZAg2v6P3C66TUegwhSG7QQjPTNtLqQxp0K9uOXL9Vni22sWUYx6aRavAgCCdryYTJV0ntMX9FIA/EOkVhms5iEuHrFjYkeqmR+sqOAuW1RJWO3wj5iPVKpXqGFwPKrJBjMDG7Vadve7LIoWNcs8KdHo9dQVV5f3OsmUOvPHfVxHprO9XhY1mn/35briqykXaNvjABLSllutbRS5UuaScLo+BDxCWBHxIdnaSpkQIDacDAgIt+QDI1fR+4WrHhR6Ckpxa6qo6sCLL9QK7zoS+20i1Nx1bCd7KIdWemyudvEwGHxptnVb1PMKHqpQHAYygimCeY/A6hNxS9OSqTR3qU60kfq+gzEfol8XdqP2C/ZUIMQvT81EJZqw7KtjgT5ix1iHPDlhP3OPuFEg4ozuDVs/m3EkKNHrN/bbO83Atr7+8a+d/2vJJRKAGXZ9f1GQUm25LdbGkmCgiHAkwHRAIDPofmdGSYyc6H4hK25ufJQfqljBf0uw8tM/QkP9pzyes4KUy1JyRLRhViX1LM4z4DTa/CTuBToUSokzJQ836vTbESoyDtOo61AukSUDQSw7H70oTlYywueNR28yE4cEaGnn7PeXkBORiesT/+9IAPgAG90fUa3h67L/KGo1vD22XkSdNTeMNuxIrKam8YbakkR7Io0MVri+syxkU9VrEzKH2SDOlvfEGLd89cdQ6xIMa987fXjutnlkjoNC5hosYdZ3Lydn0HtX///////////////////////////////////////////////////////7IKTbclutjSR9QRDASYHqgUBnyEBM+LExk5x0BEZe3dz4JBeqWGC7pdh5aZ+hI/4pfyKs1lAgtS9ImAwq9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PWpStx2mFmJslfpMsoC52iwlly35cl4biTT+v4VR2uwQQlHGJI4YZ2RGL9lMYJqLK200lPzNW2ivMQ4ygs9QqZKWpISF/V9jyUSlMFKQnI0zJ3pSw2WxbOxel2UaiGNbOM81RP5YzmKletlep7tNLalNrlyzzmNeN2Oy7LU5xo28rSQeoVoAJbcsu20iBECD9FRBEK/iCSDWF8RcRADrTb/ByRotSIAlCBKJMyAU6uUMhVVPXTtESVYZh40qVWO0tsxTj8WR3JitSlYyTDytcLS8NAa4/soKg7OW6Dph0lSN/GviSjFaWYJqY62VO5V8zK3vQlvtBDiAECTJDKwpIPlLVGyZNxpM5TNWmxpW6XU6wsIjUbqRjuU9KJuYtSGtMWH8lFyUUkRpMqKvuYq37mqXO3Uu51r81MV72Rt8ec8Zcs/3xFSEAFpyOW2toIwQTQDuSUWMTJHU4aloEpAoCPu6q5cO2FixxZtSHy3qo8KghTS9pBMtHqZQmNB3SmY7FradsDNCmmfm5mtqrJX0+UOmiUWk7/PBDNpwy0cQ9/UYZyG2CFmnerOjB89WYONBmICROdBqDwsPRqkr+qnjEVtP//vSAD4ACHJO0es4w26yyno9Zxht1lkdQ6znC7qwIWg1jOF35HJBWl2Nqvh3PGxutQ453sZ3kzlvOm/9dszNi1/Z/d/C3uvnc7lds471hz9Z7tZVMtDLImZqv//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////gAAacjltraCLEF3CVQmCxiZJGkzUyEYAGEg1yU8ladrLEliVZiHy1qk/pAuuz2kD0z+EyKAaDu6aEs2vpOw8x6oxk4QrdSOQ3j9PITViHpcypomNG1ssnOZvyljqyrAAQQND8Avtk3ZlY8W00ZTKw1GJrBqDVH1THmn4vvpnYlVNVqfhT9rY1qkd/X0tnHu+buaw1leq8y5ew1/LVTmqnN1qKrj/NZYd/X4f+HP53HV33F2WSUm7Jda0QoxuoK4GOA68fGqRpNrbdS3Y8jLpSWVabivkBAq9zjIqJA2a0C9kXvjIxwhIVU8ZRCcyvcJQk8tyGHNVltm6MBxRhQFMtafU6OM1aIfYc764LSOImaVwQqYu7m1xHZZMqetlKG0EtObnDtNTpbpQ2a6nr9FQrSm6HB52StpDsVwt3YfsZXblfL6aD7VvG72XVavP7b3jrWq9nDe6HdJjdxq/XHop+Rzu8wx/BhAEpuyWyJEJYTNQd4DnRehFmpBv+vkElRJtVTEFWrioqZA6NNuHRGU61tIwCAQ/Tjph3kBA1C/ohCY5K5UQkJBYQy6k1QqHnbcNxRVAxsU2iyhhlC0CvKofZpF2ujRo/GmHKYwXOtGdG/ZjKg1qmjs7nmytUNeXuThdpYCs1a9t+aSUyHHLO3e1lhcs913WsLHd4brZaqdt5f9fC9xORCsmhlmu/wIGY2NdkLGUU7bbbdY0QoRnwZUIhG5wAK4IDoqtsysSUNZhYADB0o32gELhqbU7xGdPAFx0iJW5PXS0SfdZyGWJMXU0DCEaZfgp0IRduhZkPQQ16CKWStfY1nDDiF5YyztLxUkPSOUAwFR82yQO4EWdB3YLwlKQb14OzXntZYV57e7v/+9IAPgAITkZQ6znC7rOqCh1nOG2WCUU7rGXtssknp/WMvbd2O2MZic7am6Tt6rRa5lPzN/C/Sc5Vx7R6w/n/3v5/3D8uUnZ6F2rsMO57/fjv///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////9lFKW223WtEKIX8BlpCxmboCugcNDr1gRVRtsyjQc2lHAUEiEVIqXvEaFrwYPEPK1pFEyzSl8Ya4ywmEhtLQwhmaZyR0G1lMpCh0DQY+1aBeOGndK5pxC4LFYCUoXZXooACxsbzRoPjFaUOzBlLtGuOyBHlr8D0kRlj8VmqPxFYm8MYr0ljPszFMsdwdd+cp61+ewps9VLms/q75v9a1vLu87/e/j3X4a1+P4f/83+uXKSylMAEuSSSWNEAipDlISkHgRt9wg6hLOIUhgRTfxZCgokGw9bpZQMPd9mZ6tSeQszGA5VlFzOTDG5G/RACyWnQIGCaTC6hSCtqUKPky0oppQsLfpGlhJFhDCYIJnWSAG2dSfGaIud6cE/BoHicRXNaLZDtFihv2qka7+aFCe6exYbfiCtTR4dIC02TSruedMZYFJGetrfu9oF8fMTV7W97yvvilL2k+7b19f5vjf17TVDlMkpOSWS2RIgmJDFIQ0GqQ+4YLGViVI8wMMTDjDdEeUa3DasgkEg4fes5UotOrBjCb/T0PmQWLF5SpJVmsrVmAI6kc3eTpzoU/xa6as3y5MPRBn4jiobDOOpEtJ7HlFYitC16bkWOBnXZxolHsC5J0q7URS+kUWrEdDM1ilUahW6KlN3b40Bxvamo0JupCYFZS88dnfzxKRJPe7PTeaQcz7pdsntLqemcUvfWL5jwmMMgwQZJbctsusiRCLDXpISvCRrvSgh1EBKEoODnSYl9Y2QKjU0XUUHTQgpzFhQmiu31gVSuUkNmKkuOrL2vPlUZUOhyl/WFlzJ98VhT8JVjddrycUrmEdzbVDEkRpukJPsrFZQmbZAXSvOldaYldZ2zKiRiW2WKzk9Ml61qluUf/70gA+AAg4UNBrOXturilp/WMvbdbNU0Gs5e260SPoNZ1hd2nTxqVbU/7rOX3p8fWb1xG3l9EfQ49d41jEJvd42+iWtDtGviPS+sfPzj5riuvKqXSpGf////////////////////////////////////////////////////////////////////////////////////////////////////////////////////9gBNySS2yJEEyF1UBKxGmNVCXqMq7g5ctKMtxf8cbGvn7Z4h+hVBzkiXleFYjo2E1XM9xEunf9xntpWVDJLYX5T9BhEP2XZA5sDw68zzyGMKKmW2IUboO1D0CcRDHb4n6QhLbkS19U5mpdnohbWvIcozJVDWeqNTzjNGcWmGyKZWSVli1mWnsaHl7A1iJTFaMVp6+7++Kwuzwnjtq0+tisbUlM3+4Wa3GlBQJ2qscySm3b7tZGiESZdSGLmjROFQY4UybunMLkVhIiYWwQUIV9Sw6WAFKkuaAIzUvf5pQgTLequQIlKENSquWhe1ryZQUFbg7tZDij42hKADhmvM4W2v1+35RlIZJiBs6zdLq+P6IhL2Arlw2wp2JZyrWFUq5iO5/lG5ULnGmlT0Z8sOCYZE8nl5hYXKA8Xlc0uDczJJsjJWzJBpetrZ14tM7i2zWmLXiQcZx9fFsVr84x/jPpm+MS4rZJTbt22siRBEDLqQx80IIoVBjhVJw5WYXYrKREYWtQUFKSpX5IACNyfMoDH6fb/TZAFT5hbYSdYxKBmXmaFp8IfJHAwbQK5jpADVgVQIWBBnGbxabySh2BQa4asD0kpzeVSmaiVuQzVrWUppH7kUJ7Bkrj9JLn+n4OxpJTD1JPv/KI1Vn+wVZn7+HNWq/L9HVy/tythfoP/P8rfL3LnbNzP71rO1evdxr4RsMXXRojTeAWxfRlguS37WyJEJALcco4Fm7hgCixS0RLtDQ4NfcxO0wgzNQaI6S0DAAVURWe0FSN85aPYQGCqW2LdHi2nunFCTBEYs7j/EU6qasLFguGySMTSCKlfKngq7Z4Do+kgdiimLyEPRoPyE00co1q2AbD6mhWkqIuLpcXoR0gFg4O//vSAD4ACWFV0Gs5Y2yt6eoNZyxt1MUfP63hi7p+Iih1rLF3FioyoZE7LW+zy6//dl6N3Jo8xR6F6tbPLGGpOKP2Z6rrM2yX9v09fb9m/0/3/N53rz7P//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////+ywHJbtrZGiEmFeOUcCzohgCqRG8nnA6MjK2rJ2mIKZqTGH2YAYAieiX0CmsA2z/rDqZhxMaa0frJddoUCg0h2m0tFCbO0kWvCEeD3JsocoZg626XKWoDtlhaN4xyJBKiH4eCAZKSuSCU+LGFJqoR1Go4dahPGTxxUcL0CA5NkYeNRnRNsVsqgoaVzl5WTnqC4cWPaU+YUzEGRWmk3sx87jFM7fntt012YUESzjAJhguS3W2yJEDwQsduhgKgcsFBguvMxgYkkrAxaAl1GlKFLEA1fRQYWuvJVzfM4AVmjLpY4DBq7LPu2AFV4YcdhMQZ4+71Odg+ODsxlMC46tg3J7h8nPtgDor1ZOiensvFR4W1J8dlNZhaVEBGdGY/FY2JRKajTFUSS4mmTKCBczWq9f2fVmvM3W0dhr1Vrse/zcP+zZ29X9S+kRyZg1hlGclBWzk1uMspy2666RohIBl6+DE9D5AhIOnuahU9UNhBUFPU+VaVWmPS4BdoaHZExZ+ncBRT4OS9hbld6gcrCgUGwE7bMb68F1xJocKdNm8R8pjmPkiuZVMgOCkmgsFoli0VCUcKHUiizJ4d5C+veedi1VAvOnXaL15VYSoS+zlPXtr2F9ErKhlKvemKsLzUTvfWnxX/7MNwxUbDiTDK/v/rHSaTGOGSUrv/tta2glyyJfJqbpfmNuIQn0FIIWsTCGGkIALCAc1GJzGMNIhkgeiwUBaoDTvqBAKaGhypEb2cMEsxduT2xZeirpDHGiOxAsrjzAJDeUwcSBcAHA4wMmyhMBey5KSEYaGCgrKkQBAFOFjoeFLHRgHH13FkyAPichNj/+9IAPgAH1FXR61hLbKeJej1rDG3XdVdNrGXtswmq6bWMvbalaCBBNKWt5Keq3BW7yrSu51FW/JK6hPLWZax8FZ/fUZ7cXQY8qnnuo5t/W//////////////////////////////////////////////////////////////////////////////////////////////////////////////2SUrv/tta2gjSvJZJq75emNuoMoS7EELWJhjKSUEIBQGaTDX4yhtIDHGkQCYLuCEMOGIyuDVBWwv+1hWm5KVPuRMqcNSjEobEriWv80prEHQywBoFmZMy1wBx3VD8lx1gt+vtAfsxHRghupkJNpEPzMpn1CXdkmFsvtHQ4k+ezLfTMhbXtUxu1K0rE/e2YoZhuuZbTXlm3dW9EOn/2bdfkAo3LhsIyWiklu////7SIFBEKHbPlykcUZGA/MNfsLOIoPi19GNBEiOKkmciIhaUgFMQJqigJUphTpl/gabL0KILfV9IjK1QyZiYADi8PRKBZGxNY8WYUoas6w0Nty4KhDSSHpFUZ2ISfyyuWtAHeTpSpRXtZ0H+TBxSTEZKMdHRHmoijiTh+nkzs67Trm/T1XDEZsms/b3OFEj6Z2XR7MsaA/jZfd4xvqss+9OUSJejh5n6j+PnddX1j/53vf+PnPzDzSS3f///9pGChBfh2z9cpPFGRgPy7X7C0CaD1s7KBjIAkGIyTSXFCXjIBzGCbgmKS2uXBpcILlu+gMgl5YKdFsCxHsVOFBWJv8+EZ3A6v6z9KCuM4ENQoWw/SNq1NsB9pJcsyARS2nEifaYOVXnuaGiMPUMPNxPdEqlGnSfqGPSbuJ5oaYxmw2dnfH/LOrGV5BcmWEyKnd2mLqE57Xoe4DlmKwqx7iLHXN268OE/xEkj2+4d9e97bq8vXHiv9zT1w3zbYISd1221rZCmhIBU6C24so77ohFwoINcFCifMcgFF0S9Zh8KqBym5FoSijg33lTWYuGRHuNSYJFWlRV5G5IEn0YIhQrXI20SuirlTiUb9rLYqow8tSGahmsQsKJSx3pEu1FYu1WvsyqnQ2dvOWKS6Ge6tbG9GsmoqomcEv/70gA+AAeRVdFrWHtss6kaLWsPbddlV0/s4e2y+6sp/Zw9tkOBTnIhh9nO2x5sv7IbFgXZ2x3CtDgNjBer6Q5H0CE920wWCS+2B5drYYUPeYWfj+3zjOt5xjX3v/G9/WYf//////////////////////////////////////////////////////////////////////////+wQk5rdtrWyEwCoBYwFuRZB33RCMBQQa4KFlLZI8KLqEVinBqgcZeSA0mo6MZeVr0nRFRghSxLqpmCvEqkpF/k9EJCvmwMoU2pGuOUgfSKPxVPFyZH36lNAVClgK1ra10njtUZKTqQpdG/HS6/K1qAz0yzNbc5rLCex+GLhgkWnjO4yySOMB/V87ds0RigQKMtnjleA+PyNR4X3DPDZYzlfc0KPZmfK2LK2xiv4LdJbWd50+0ERNFV3j//aRgSBR+ck8ax5mXqOAlNZUcNGhd1psAQgPHajBAODSMhSgCWw2w4RyHATaaxE5QFp7TGANUX1GluP0VSMOi8TYytdy21WRSudYTkVO+r7HUyJwvZwLJ7qqyublaqWI5yWrR1HYiVYzQEYbhdx1uCbNnCveItjWHjCrVjEeG9bsUpFuxt0qw4sMW0jL4uJHu39HB0eb60OLbV1FDntaj5xgQHsP5znWLZkjYnxX7hS7zvWPGwgiJoqu8f/7SNCQKCzknnaPOy9RwEprKjhp0KbUzRAhAeO1GABItZwUmAltdyiWwoR/URiKS7XLvSBhDZHHVA+AqJc0P0tCrVB7DWUYsecdBIueBZ4eUzxC3TWrVy1IeoHitSDOW1Q7I1BXlhEPdDDL3EuXdyirgt9Yq6V7k+OSMed269IrYv0pWe0GDRei2fwNPcLbA6fLcbUHDI+tSNaHiBBYdWdatmBPqFTU9sYpe2b6xBxie9IPvY5uqy9qyABKbb7fWxoF+QAAaWZyiLF34UPA2IMBrvBAoWGNbZ8Kgi6bBSA4NGVNBUNKUua5BUOCKBCUBWD6GV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\"></audio>\n\t  <!--\n\t  Title: Small Crowd Applause\n\t  About: A small crowd in a theater applauding for a few seconds.\n\t  License: Attribution 3.0 | Recorded by Yannick Lemieux\n\t  http://soundbible.com/1964-Small-Crowd-Applause.html\n\t  -->\n\t  <audio class=\"chuckbob__success-sound\" src=\"data:audio/mp3;base64,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\"></audio>\n<style>\n .chuckbob {\n   z-index: 999999;\n   background-color: rgba(70,13,13,0.73);\n   color: rgb(245, 207, 15);\n   border: 10px solid rgb(119, 50, 12);\n   border-radius: 5px;\n   padding: 10px;\n   position: absolute;\n   top: 0;\n   left: 0;\n   max-width: 500px;\n   min-width: 390px;\n   font-family: monospace;\n   font-size: 12px;\n   line-height: 14px;\n }\n .chuckbob button {\n   font-family: monospace;\n   border-radius: 5px;\n   background-color: rgb(119, 50, 12);\n   color: #fff;\n   padding: 5px;\n }\n\n .chuckbob button[disabled] {\n   opacity: 0.5;\n }\n\n.chuckbob h1 {\n  font-size: 18px;\n}\n\n .chuckbob a {\n  color: rgb(245, 207, 15);\n  font-family: monospace;\n  padding: 10px;\n }\n\n .chuckbob fieldset {\n   border: 2px solid rgb(252, 120, 0);\n   margin: 4px;\n   border-radius: 8px;\n }\n\n .chuckbob--hidden {\n  display: none;\n }\n\n .chuckbob .chuckbox__exit-controls {\n   border: 0;\n }\n\n .chuckbob__result {\n   color: white;\n   padding: 4px;\n }\n\n .chuckbob__result--ok {\n   background-color: rgb(3, 150, 15);\n }\n\n .chuckbob__result--success {\n   background-color: rgb(173, 6, 6);\n }\n\n .chuckbob__test-log {\n   bottom: 0;\n   width: 100%;\n   height: 200px;\n   background-color: rgb(119, 50, 12);\n   color: rgb(230, 189, 189);\n   overflow-y: scroll;\n   font: monospace;\n   margin-bottom:\n }\n\n.chuckbob__toggler {\n  float : right;\n}\n\n .chuckbob__tests-list {\n   margin: 5px 20px;\n   display: block;\n }\n\n</style>\n  </div>\n\t</div>\n  </body>\n</html>\n";
+
+},{}],28:[function(require,module,exports){
+/*global window, document */
+/*global define */
+
+"use strict";
+
+var html = require('./gui-template.html'),
+		$ = require('jquery'),
+		makeDraggable = require('./draggable'),
+
+		$content,
+		gui,
+		controller,
+		testNames,
+		hide = function () {
+			$content.remove();
+		},
+		callChuckbob = function (methodName) {
+			return function (optArg) {
+				if (controller && controller[methodName]) {
+					controller[methodName](optArg);
+				}
+			};
+		},
+		singleTestCallback = callChuckbob('runTestByName'),
+		singleTestClick = function () {
+			var val = $('.chuckbob__tests-list :selected').text();
+			if (val && val !== "") {
+				singleTestCallback(val);
+			}
+		},
+		updateLog = function () {
+			var textLog = controller.getLogText(),
+				$logArea;
+
+			$logArea = $('.chuckbob__test-log', $content);
+			$logArea.text(textLog);
+
+			//Scroll down:
+			try {
+				$logArea.scrollTop(
+					$logArea[0].scrollHeight - $logArea.height()
+				);
+			} catch(e) {} // If not shown yet
+		},
+		update =  function () {
+			var isSingleStepping = controller.getIsSingleStepping();
+			$('.chuckbob__single-step').text(isSingleStepping ? 'Off' : 'On');
+			$('.chuckbob__step').prop('disabled', !isSingleStepping);
+			$('.chuckbob__resume').prop('disabled', !isSingleStepping);
+			updateLog();
+		},
+		singleStep = function () {
+			controller.toggleSingleStepping();
+		},
+		bindEvents = function () {
+			$('.chuckbob__run-button').click(callChuckbob('runAllTests'));
+			$('.chuckbob__restart-button').click(
+				callChuckbob('restartFromOriginalUrl'));
+			$('.chuckbob__exit-button').click(
+				callChuckbob('restartFromOriginalUrlNoAutostart'));
+			$('.chuckbob__abort-button').click(hide);
+			$('.chuckbob__run-single-button').click(singleTestClick);
+
+			$('.chuckbob__step').click(callChuckbob('step'));
+			$('.chuckbob__resume').click(callChuckbob('resume'));
+			$('.chuckbob__single-step').click(singleStep);
+		},
+		addToggler = function () {
+			var $el = $('.chuckbob__toggler', $content);
+			$el.click(function(event) {
+				event.preventDefault();
+				$('.chuckbob__container').toggleClass('chuckbob--hidden');
+				$el.html() === 'Hide' ? $el.html('Show') : $el.html('Hide');
+			});
+		},
+		renderTests = function () {
+			if ($content && testNames) {
+				var $tests = $('.chuckbob__tests-list', $content);
+				$tests.empty();
+				$.each(testNames, function (idx, testName) {
+					$('<option/>').text(testName).appendTo($tests);
+				});
+			}
+		},
+		render = function () {
+			if (!$content) {
+				$content = $(html);
+				$content.appendTo('body');
+				bindEvents();
+				renderTests();
+				addToggler();
+				makeDraggable($content);
+			}
+			update();
+		},
+		showResult = function (options) {
+			var opt = options || {},
+				ok = opt.ok === true,
+				failure = opt.ok === false,
+				text = '';
+
+			if (ok) {
+				text = 'Success';
+			}
+			if (failure) {
+				text = 'Failed';
+			}
+			render();
+			if (failure) {
+				$(".chuckbob__fail-sound").get(0).play();
+			}
+			if (ok) {
+				$(".chuckbob__success-sound").get(0).play();
+			}
+			$('.chuckbob__result')
+				.text(text)
+				.toggleClass('chuckbob__result--ok', ok)
+				.toggleClass('chuckbob__result--failure', failure);
+
+			updateLog(opt.logLines);
+		},
+		setTests = function (tests) {
+			testNames = tests;
+			renderTests();
+		},
+		nop = function () {};
+
+	gui = {
+		setTests: setTests,
+		show: showResult,
+		showResult: showResult,
+		hide: hide,
+		update: update,
+		registerForCallbacks: function (obj) {
+			controller = obj;
+		}
+
+	};
+
+module.exports = gui;
+
+},{"./draggable":26,"./gui-template.html":27,"jquery":7}],29:[function(require,module,exports){
+/*global window, document */
+/*global require, define */
+
+"use strict";
+var nop = function () {},
+	showResult = function (options) {
+		var opt = options || {},
+			ok = opt.ok,
+			logLines = opt.logLines || ['- no log. -'];
+		window.toPhantomFromBob = {
+			ok: ok,
+			logLines: logLines,
+			finished: true
+		};
+	},
+	log = function (string, totalLogLines) {
+		window.toPhantomFromBob = {
+			logLines: totalLogLines
+		};
+	},
+	api = {
+		log: log,
+		setTests: nop,
+		showResult: showResult
+	};
+
+module.exports = api;
+
+},{}]},{},[1])

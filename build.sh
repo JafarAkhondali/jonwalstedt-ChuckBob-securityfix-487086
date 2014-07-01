@@ -1,1 +1,4 @@
-node ../../build/require/r.js -o build.js 
+#!/bin/bash
+npm install
+node build.js
+

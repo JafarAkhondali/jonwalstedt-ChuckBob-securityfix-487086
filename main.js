@@ -1,16 +1,16 @@
 /*global window, document */
 /*global require */
 
-require([
-	'script/chuckbob',
-	'jquery'
-], function (chuckbob, $) {
-	"use strict";
-	$.noConflict();
-	chuckbob.integrationApi.setJQuery($);
+'use strict';
+
+var chuckbob = require('./script/chuckbob'),
+    $ = require('jquery');
+
+$.noConflict();
+chuckbob.integrationApi.setJQuery($);
+
+if (window.afterChuckbob) {
+  window.afterChuckbob(chuckbob);
+};
 
 
-	if (window.afterChuckbob) {
-		window.afterChuckbob(chuckbob);
-	};
-});

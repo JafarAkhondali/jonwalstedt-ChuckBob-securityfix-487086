@@ -1,10 +1,9 @@
-define([
-	'jquery'
-], function (jQuery) {
+var
+	$ = require('jquery'),
 	// http://www.coderholic.com/jquery-draggable-implementation/
 	// Make an element draggable using jQuery
-	var makeDraggable = function(element) {
-		element = jQuery(element);
+	makeDraggable = function(element) {
+		element = $(element);
 
 		// Move the element by the amount of change in the mouse position
 		var move = function(event) {
@@ -36,5 +35,5 @@ define([
 		element.mouseout(move);
 		element.mousemove(move);
 	};
-	return makeDraggable;
-});
+
+module.exports = makeDraggable;
