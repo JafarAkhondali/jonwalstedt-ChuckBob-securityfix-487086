@@ -34,7 +34,7 @@ the 70:s TV-series Soap? You find them on various video sites.
 Build
 -----------
 
-To build the chuckbob-all.js file you need nodejs and npmj. After
+To build the chuckbob-all.js file you need nodejs and npm. After
 installing nodjs and npm run sh build.sh Alternativly run npm install
 and then run node build.js or sh build.sh to build the javascript
 file.
