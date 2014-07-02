@@ -36,8 +36,7 @@ Build
 
 To build the chuckbob-all.js file you need nodejs and npm. After
 installing nodjs and npm run sh build.sh Alternativly run npm install
-and then run node build.js or sh build.sh to build the javascript
-file.
+and then run node build.js to build the javascript file.
 
 
 Quickstart

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ChuckBob</title>
+  <script src="http://code.jquery.com/jquery-2.1.1.min.js"></script>
+  <script>
+    $(document).ready(function(){
+
+        $toggle = $(".toggle-readme");
+        $subsection = $(".subsection");
+
+        $toggle.on('click', function (evt) {
+          $subsection.toggleClass("show");
+          evt.preventDefault();
+        });
+
+    });
+  </script>
+</head>
+<style>
+  body {
+    padding: 10px;
+    background: rgb(119, 50, 12);
+    font-family: monospace;
+  }
+
+  .section {
+    max-width: 720px;
+    padding: 20px;
+    border: 10px solid rgb(252, 120, 0);
+    -webkit-border-radius: 10px;
+    -moz-border-radius: 10px;
+    -ms-border-radius: 10px;
+    -o-border-radius: 10px;
+    border-radius: 10px;
+    margin-bottom: 40px;
+  }
+
+  h1, h2, a, pre {
+    color: rgb(245, 207, 15);
+  }
+
+  h1, h2 {
+    margin-top: 4px;
+  }
+
+  p {
+    color: white;
+    line-height: 16px;
+  }
+
+  strong {
+    color: white;
+  }
+
+  ul {
+    padding: 0;
+    margin: 0;
+  }
+
+  li {
+    list-style: none;
+    line-height: 30px;
+  }
+
+  pre {
+    
+  }
+
+  .subsection {
+    display: none;
+  }
+
+  .show {
+    display: block;
+  }
+
+</style>
+<body>
+  <div class="section">
+    <h1>ChuckBob</h1>
+    <p>Chuckbob helps automatic testing of webpages. No middle-man is required and tests are coded in javascript.</p>
+
+    <p>Chuckbob can simulate a user, clicking on buttons and interact with the page in various ways, and verify that the page looks as expected.</p>
+
+    <p>The code for Chuckbob is included on the same html-page as the running application. This is unlike many other frameworks for browser automation. You are in direct connection with the running application and there is no middle man involved. This makes chuckbob easy to run on all sorts of devices and very easy to set up.</p>
+
+  <p>Since Chuckbob is written in javascript and runs on the same page as your application, it is not black-box testing, rather something grey. You have the possibility to connect to you application, and have the full javascript language at your disposal so you can do all sorts of advanced automation.</p>
+
+  <p>Tests for chuckbob are written in javascript. The idea is that you to a large degress should be able to code tests interactively with your developer console. Chuckbob includes a debugger with breakpoints and single stepping. There is also a GUI in shining brown.</p>
+
+  <p>Chuckbob tests can be run directly from a browser on a phone or computer, or headless with phantomjs.</p>
+
+  <p>Are you looking for Chuck the ventriloquist with his puppet Bob from the 70:s TV-series Soap? You find them on various video sites.</p>
+
+
+    <ul>
+      <li>
+        <a href="/demo/chuckbob-demo-todomvc/index-chuckbob.html">Chuckbob TODO Demo</a>
+      </li>
+      <li>
+        <a href="#" class="toggle-readme">Toggle README</a>
+      </li>
+   </ul>
+  </div>
+
+  <div class="subsection">
+    <div class="section">
+      <h2>Build</h2>
+      <p>To build the chuckbob-all.js file you need nodejs and npm. After installing nodjs and npm run sh build.sh Alternativly run npm install and then run node build.js to build the javascript file.</p>
+    </div>
+
+    <div class="section">
+      <h2>Quickstart</h2>
+      <p>There is a demo for todo-mvc, open up the index-chuckbob.html file in your browser. Read the chuckbob-todomvc.js file for an introduction to how you can write tests.</p>
+    </div>
+
+    <div class="section">
+      <h2>Behind the scenes</h2>
+      <p>Despite that chuckbob runs on the current page, you can do page reloads and navigate to different urls within your application all within a single test. This is accomplished by chuckbob saving it's state to local storage, and reloading it on page-load. For this to work, all pages on your app needs to include chuckbob.</p>
+
+      <p>This can be done manually by including a script tag. Or with a proxy
+  server that adds the script on every page. Doing this proxy server for
+  grunt or gulp or whatever you use is left as an excerise to the
+  reader.</p>
+    </div>
+
+    <div class="section">
+      <h2>Usage</h2>
+
+      <strong>1. Include chuckbob</strong>
+      <p>Include a script tag that refers to chuckbob-all.js on your page. Add another script tag to a new javascript file tht will contain your tests.</p>
+
+      <strong>2. Code tests</strong>
+
+      <p>See the chuckbob-todomvc file in the demo folder.</p>
+
+      <strong>3. Run tests</strong>
+
+      <p>Open up the page in your browser. Click run all, or add an autostart query string parameter.</p>
+
+      <strong>4. Run from phantomjs</strong>
+
+      <p>There is a file script/node-chuckbob-phantom.js that runs chuckbob tests with phantomjs. See ant-snippet.xml for an example integration with a build process.</p>
+
+      <strong>5. Debug tests</strong>
+
+      <p>Eveything you can do with the gui, you can also do from the console. The intention is that the console should be an interactive tool to develop tests.</p>
+
+      <p>You can add breakpoints to tests by adding a .breakpoint() step.</p>
+
+      <p>You can also single-step:</p>
+
+      <pre>
+  > chuckbob.startSingleStepping()
+  > chuckbob.runTestByName('Add task')
+  > chuckbob.step()
+  > chuckbob.step()
+      </pre>
+
+
+      <p>Then you can get the currently selected element by:</p>
+
+      <pre>
+  > chuckbob.getElement()
+      </pre>
+
+      <p>You can resume after a breakpoint or single-stepping:</p>
+      <pre>
+  > chuckbob.resume()
+      </pre>
+
+      <p>If you want a copy of jQuery on your page:</p>
+
+      <pre>
+  > $ = chuckbob.$
+      </pre>
+    </div>
+
+
+    <div class="section">
+      <h2>FAQ</h2>
+      <strong>Q. Chuckbob goes crazy and keeps reloading the page again and again. What can I do?</strong>
+
+      <p>A. There is a value "bobState" in local storage you might want to remove. Using a developer console, you can write localStorage.clear() and chuckbob will stop.</p>
+
+      <strong>Q. I dont understand how to single step from the gui?</strong>
+
+      <p>A. First press single step "On", then run "Selected", then "Step"</p>
+
+      <strong>Q. Why doesn't Chuckbob work the way I want?</strong>
+
+      <p>A. Probably because it is in an unstable stage and might need
+  improvements. You are more than welcome to contribute or suggest
+  changes.</p>
+    </div>
+  </div>
+
+</body>
+</html>
