@@ -16,8 +16,10 @@ includes.
 				.write(taskText)
 				.comment('Now we need to do a trick to simulate the enter key')
 				.run(function ($element) {
-					var e = new Event('change', {bubbles: true});
-					var domNode = $element.get(0);
+					var e = document.createEvent('Event'),
+							domNode = $element.get(0);
+
+					e.initEvent('change', true, true)
 					domNode.dispatchEvent(e); // jQuery trigger does not work
 				})
 				.comment('Now it should appear in the todo list')
@@ -62,8 +64,10 @@ includes.
 
 		chuckbob.addTest('The filter', function () {
 			var triggerClick = function ($element) {
-					var e = new Event('click', {bubbles: true});
-					var domNode = $element.get(0);
+					var e = document.createEvent('Event'),
+							domNode = $element.get(0);
+
+					e.initEvent('click', true, true);
 					domNode.dispatchEvent(e); // jQuery trigger does not work
 			};
 			this.gosub('Complete a task')
@@ -106,6 +110,7 @@ includes.
 
 		chuckbob.initialize();
 	}
+
 
 	if (window.chuckbob) {
 		addTests(window.chuckbob);

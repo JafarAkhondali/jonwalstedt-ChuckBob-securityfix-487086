@@ -20,7 +20,8 @@
 //------------------------------------------------------------------------------
 
 
-var URI = require('../bower_components/URIjs/src/URI.js'),
+var
+	URI = require('URIjs'),
 	httpServerPort = 31234,
 	fileName = phantom.args[0],
 	rootDir = phantom.args.length > 1 && phantom.args[1],
