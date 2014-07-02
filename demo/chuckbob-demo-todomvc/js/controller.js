@@ -230,8 +230,9 @@
 	 * @param {boolean|undefined} force  forces a re-painting of todo items.
 	 */
 	Controller.prototype._filter = function (force) {
-		var activeRoute = this._activeRoute.charAt(0).toUpperCase() + this._activeRoute.substr(1);
-
+		var activeRoute;
+		this._activeRoute = this._activeRoute || 'All';
+		activeRoute = this._activeRoute.charAt(0).toUpperCase() + this._activeRoute.substr(1);
 		// Update the elements on the page, which change with each completed todo
 		this._updateCount();
 
