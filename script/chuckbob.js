@@ -356,7 +356,8 @@ var when = require('when'),
 			resetWaiting();
 
 			if (leavingPage) {
-				return;
+				//return;
+				return when.resolve();
 			}
 			if (testCase.disabled && !state.selectedTestNames) {
 				log("Skipping test: " + testCase.testCaseName);
