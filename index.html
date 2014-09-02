@@ -138,7 +138,22 @@
 
       <strong>4. Run from phantomjs</strong>
 
-      <p>There is a file script/node-chuckbob-phantom.js that runs chuckbob tests with phantomjs. See ant-snippet.xml for an example integration with a build process.</p>
+      <p>There is a file script/node-chuckbob-phantom.js that runs chuckbob tests with phantomjs.</p>
+      <pre>
+  > Available params are:
+
+    --phantomjs
+    --urlPathname
+    --urlProtocol
+    --urlHost
+    --websdir
+
+  > Example:
+  > node script/node-chuckbob-phantom.js --websDir="demo/chuckbob-demo-todomvc/" 
+  --urlPathname="/index-chuckbob.html?phantomjs=true" --phantomjs=phantomjs
+      </pre>
+
+      <p>See ant-snippet.xml for an example integration with a build process.</p>
 
       <strong>5. Debug tests</strong>
 

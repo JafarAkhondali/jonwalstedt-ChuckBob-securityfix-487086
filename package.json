@@ -35,6 +35,7 @@
     "requirejs": "^2.1.14",
     "requirejs-text": "git://github.com/requirejs/text#0260977d6dfb61a44c7b5ec977332955dac33869",
     "stringify": "^2.2.0",
-    "when": "^3.2.3"
+    "when": "^3.2.3",
+    "through": "2.3.4"
   }
 }

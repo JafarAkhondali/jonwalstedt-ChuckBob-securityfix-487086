@@ -356,7 +356,7 @@ var when = require('when'),
 			resetWaiting();
 
 			if (leavingPage) {
-				return;
+				return when.resolve();
 			}
 			if (testCase.disabled && !state.selectedTestNames) {
 				log("Skipping test: " + testCase.testCaseName);
@@ -868,8 +868,6 @@ var when = require('when'),
 			var uri = URI(window.location),
 				hasLocalStorageState = localStorage.getItem('bobState') && true,
 				hasPhantomjsQueryStringParam = uri.hasQuery('phantomjs');
-
-			console.log('chuckbob.js:Line 619', hasLocalStorageState);
 
 			phantomJs = hasPhantomjsQueryStringParam;
 
